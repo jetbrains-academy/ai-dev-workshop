@@ -1,0 +1,11 @@
+[project]
+name = "agentclinic"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi[standard]==0.115.10",
+    "jinja2",
+]
+
+[dependency-groups]
+dev = ["pytest==8.3.4"]
