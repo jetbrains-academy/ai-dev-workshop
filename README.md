@@ -19,38 +19,22 @@ During the workshop, we'll use the following tools, which you'll also need to se
 To read more about setup process follow [this](./setup.md) guide.
 
 ### Pre-flight checklist
-- [ ] Current repo is opened in PyCharm  
-  `< Screenshot >`
-- [ ] Codex reports you Superpowers skill is accessible  
-  `< Screenshot >`
-- [ ] Junie Lite reports you Superpowers skill is accessible (optional)  
-  `< Screenshot >`
-- [ ] oMLX/LM Studio allow you ask Mellum model in the chat  
-  `< Screenshot >`
-- [ ] Pi reports you Superpowers skill is accessible  
-  `< Screenshot >`
+- #### ☑️ Current repo is opened in PyCharm  
+  <img src="images/check1.png" alt="Repo opened in PyCharm" width="500">
+- #### ☑️ Codex in Air reports you Superpowers skill is accessible  
+  <img src="images/check2.png" alt="Codex reports that it has access to Superpowers" width="500">
+- #### ☑️ Junie Lite in Air reports you Superpowers skill is accessible (optional)  
+  <img src="images/check3.png" alt="Junie reports that it has access to Superpowers" width="500">
+- #### ☑️ LM Studio allow you ask Mellum model in the chat  
+  <img src="images/check4.png" alt="LM Studio chat with Mellum" width="500">
+- #### ☑️ Pi in Air reports you Superpowers skill is accessible  
+  <img src="images/check5.png" alt="Pi reports that it has access to Superpowers" width="500">
 
 ## Workshop flow
 *Prompts will be here*
 
-### Phase 2 (Codex + Superpowers)
-```
-Use Superpowers to brainstorm Phase 2 in roadmap.md
-```
-```
-The Phase 2 design looks good. Please proceed with implementation planning.
-```
-```
-The plan looks good. Proceed with native execution.
-```
-```
-Mark Phase 2 in a roadman as done
-```
-### Phase 3
-
-
 ## Links
 - [Slides](https://docs.google.com/presentation/d/e/2PACX-1vSxY7nTT7oZjhovtbsiWKnhvTxcHDCvtyddrrFwDqpvDAto1MxBFTkWPCpP57eqIs_BMHgtA-exAkpK/pub?start=false&loop=false&delayms=3000)
 - [Event page](https://ai-dev.deeplearning.ai/agenda/advanced-spec-driven-development)
-- DLAI Discord community
-- Leave feedback to the next course
+- [DLAI Discord community](https://discord.gg/SYsha83PS)
+- Leave feedback to the next course (coming soon)
