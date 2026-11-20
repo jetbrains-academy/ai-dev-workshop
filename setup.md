@@ -18,7 +18,6 @@
 - Download the [Mellum2.1](https://huggingface.co/mlx-community/Mellum2.1-12B-A2.5B-Thinking-6bit) model in LM Studio
 ## Pi coding agent
 - Install [Pi](https://pi.dev/) on your machine
-- ~~Install Pi extension for Superpowers: `pi install git:github.com/obra/superpowers`~~
 - Install Pi ACP [IDE integration](https://www.jetbrains.com/help/air/air-in-ides-manage-agents.html)
 - Add to the `~/.pi/agent/models.json` your LMStudio provider, for example like this:
   ```
@@ -37,4 +36,4 @@
   }
   ```
 - Superpowers skill can be used from `.agents/skills` -- no explicit installation required
-- This repository also contains a few tricks based on [Satyrn Engine](https://satyrn.ai/projects/engine/#what-it-is)
+- This repository also contains a few tricks based on [Satyrn AI Project](https://satyrn.ai/)
