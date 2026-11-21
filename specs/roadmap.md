@@ -90,7 +90,7 @@ project layout are in this folder.
 
 - `Complaint` also has `id: int` and `status: str`, and
  `Complaint("first", "First complaint")` still constructs: `id` is unique and
- increasing, `status` starts as `open`, and how that is achieved is the
+ increasing even after another complaint is removed, `status` starts as `open`, and how that is achieved is the
  implementer's choice.
 - The seeded complaints have distinct ids.
 - Each card shows `Open` or `Resolved` and a button that posts to its route.

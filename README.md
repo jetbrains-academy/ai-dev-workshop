@@ -31,7 +31,52 @@ To read more about setup process follow [this](./setup.md) guide.
   <img src="images/check5.png" alt="Pi reports that it has access to Superpowers" width="500">
 
 ## Workshop flow
-*Prompts will be here*
+The demo starts with Phase 1 implemented. Each later phase uses the same four
+prompts: design, plan, implement, finish. Review the saved design and plan
+before approving them.
+
+### Phase 2 (Codex + Superpowers)
+```
+Use Superpowers to brainstorm Phase 2 in specs/roadmap.md
+```
+```
+The Phase 2 design looks good. Please proceed with implementation planning.
+```
+```
+The plan looks good. Proceed with native execution.
+```
+```
+Use Superpowers to finish the development branch, then mark Phase 2 in the roadmap as done.
+```
+
+### Phase 3 (Junie Lite + Superpowers)
+```
+Use Superpowers to brainstorm Phase 3 in specs/roadmap.md
+```
+```
+The Phase 3 design looks good. Please proceed with implementation planning.
+```
+```
+The plan looks good. Proceed with native execution.
+```
+```
+Use Superpowers to finish the development branch, then mark Phase 3 in the roadmap as done.
+```
+
+### Phase 4 (Pi + Mellum + Superpowers)
+```
+Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.
+```
+```
+The Phase 4 design looks good. Use Superpowers to write a test-first plan under docs/superpowers/plans/: three tasks, each with its tests and the pytest commands to run.
+```
+```
+The plan looks good. Execute it inline with native tools, one task at a time: add the task's tests, see them fail, make them pass, then run the full suite and report.
+```
+```
+Use Superpowers to finish the development branch, then mark Phase 4 in the roadmap as done.
+```
+If Mellum stops after one task, continue with `Task 1 is done. Now do Task 2 the same way.`
 
 ## Links
 - [Slides](https://docs.google.com/presentation/d/e/2PACX-1vSxY7nTT7oZjhovtbsiWKnhvTxcHDCvtyddrrFwDqpvDAto1MxBFTkWPCpP57eqIs_BMHgtA-exAkpK/pub?start=false&loop=false&delayms=3000)
