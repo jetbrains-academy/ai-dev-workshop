@@ -79,4 +79,20 @@ for the baseline; add `-e ./pi-extensions/superpowers-unbootstrap.ts` for the
 filtered run. Disable context files and unrelated skills/extensions in both arms
 and explicitly load the Superpowers skills to keep the comparison controlled.
 
+### Empty-reply follow-up (2026-11-21)
+
+- **Repository-search loop:** The debugging scenario described an endpoint absent
+  from this repository. Mellum kept searching and hit the 150-second limit both
+  with the catalog/filter (39 tool calls) and without Superpowers (81). These
+  were unfinished investigations, not completed empty replies.
+- **Self-contained debugging:** Including the code, failing assertion, and a
+  no-project-search instruction produced nonempty answers in all six trials:
+  three with the catalog/filter and three without Superpowers. Each took
+  6–10 seconds with no tool calls. All six proposed fixes passed five functional
+  checks each.
+- **Empty final replies remain unreproduced:** Captured raw oMLX response text
+  matched Pi’s provider events and transcript for completed conversation turns.
+  No response-text loss was observed in Pi. The search loop does not establish
+  the cause of the earlier completed-but-empty replies, which remains unknown.
+
 Reference: [Pi extension events](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md).
