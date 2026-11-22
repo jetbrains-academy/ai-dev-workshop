@@ -72,7 +72,7 @@ Mellum will ask whether to skip its questions. Answer with the decisions:
 Skip the questions; this is a small change to the existing FastAPI and Jinja app. Direct Resolve and Reopen buttons, no confirmation. Every Complaint gets a unique increasing integer id when constructed, never reused, status starting as open. Both actions redirect 303 to /complaints; unknown id returns 404; board order never changes. Save the design and present it for approval.
 ```
 ```
-The Phase 4 design looks good. Use Superpowers to write a test-first plan under docs/superpowers/plans/: three tasks, each with its tests and the pytest commands to run.
+The Phase 4 design looks good. Use Superpowers to write a test-first plan under docs/superpowers/plans/: three tasks, each with its tests and the pytest commands to run; use uv to run pytest.
 ```
 ```
 The plan looks good. Execute it inline with native tools, one task at a time: add the task's tests, see them fail, make them pass, then run the full suite and report.
