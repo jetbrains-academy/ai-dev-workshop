@@ -67,9 +67,9 @@ Use Superpowers to finish the development branch, then mark Phase 3 in the roadm
 ```
 Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.
 ```
-Mellum will ask whether to skip its questions. Answer with the decisions:
+Mellum will ask whether to skip its questions. Skip them:
 ```
-Skip the questions; this is a small change to the existing FastAPI and Jinja app. Direct Resolve and Reopen buttons, no confirmation. Every Complaint gets a unique increasing integer id when constructed, never reused, status starting as open. Both actions redirect 303 to /complaints; unknown id returns 404; board order never changes. Save the design and present it for approval. Do not change code yet.
+Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Save the design and present it for approval. Do not change code yet.
 ```
 ```
 The Phase 4 design looks good. Use Superpowers to write a test-first plan under docs/superpowers/plans/: three tasks, each with its tests and the pytest commands to run; use uv to run pytest.

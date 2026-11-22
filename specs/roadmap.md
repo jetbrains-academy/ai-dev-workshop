@@ -97,5 +97,6 @@ project layout are in this folder.
 - `POST /complaints/{id}/resolve` marks that complaint resolved and answers 303
  with `Location: /complaints`; the board then shows `Resolved`.
 - `POST /complaints/{id}/reopen` marks it open and answers the same way.
+- Either route answers 404 for an id no complaint has.
 - Resolving or reopening never changes the board's order.
 - Phases 1 to 3 still pass.
