@@ -24,7 +24,7 @@
 - Download the Mellum2.1 model in LM Studio:
   - [MLX version for macOS](https://huggingface.co/mlx-community/Mellum2.1-12B-A2.5B-Thinking-6bit)
   - [GGUF version for Windows and Linux](https://huggingface.co/JetBrains/Mellum2.1-12B-A2.5B-Thinking)
-- Choose `Context Length` in the LMStudio for this model about 50–60K.
+- Set `Context Length` in LM Studio for this model to 60K (60000).
 
 ## Pi coding agent
 
@@ -40,11 +40,12 @@
         "api": "openai-completions",
         "apiKey": "lm-studio",
         "models": [
-          { "id": "mellum2.1-12b-a2.5b-thinking" }
+          { "id": "mellum2.1-12b-a2.5b-thinking", "contextWindow": 60000 }
         ]
       }
     }
   }
   ```
+  `contextWindow` must match the LM Studio context length. Pi assumes 128K when it is missing and then compacts too late.
 - The Superpowers skill can be used from `.agents/skills` — no explicit installation is required
 - This repository also contains a few tricks based on the [Satyrn AI Project](https://satyrn.ai/)
