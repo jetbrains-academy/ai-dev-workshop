@@ -29,7 +29,7 @@ project layout are in this folder.
  test.
 
 
-## Phase 2 — Complaints Board
+## Phase 2 — Complaints Board (Done)
 
 
 - As an agent, I want a Complaints Board where each complaint is a card with
@@ -53,7 +53,7 @@ project layout are in this folder.
 - Phase 1 still passes.
 
 
-## Phase 3 — Add Complaint
+## Phase 3 — Add Complaint (Done)
 
 
 - As an agent, I want a form at the end of the board that posts my name and
