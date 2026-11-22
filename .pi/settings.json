@@ -1,3 +1,4 @@
 {
-  "extensions": ["../pi-extensions/superpowers-unbootstrap.ts"]
+  "extensions": ["../pi-extensions/superpowers-unbootstrap.ts", "../pi-extensions/lean-prompt.ts"],
+  "defaultTools": ["+find", "+grep"]
 }

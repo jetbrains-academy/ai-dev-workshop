@@ -9,6 +9,10 @@ The using-superpowers skill content is included below and is already loaded for 
 
 `;
 
+// The removed bootstrap also carried the Pi tool mapping; this line keeps the part plans rely on.
+const TOOL_MAPPING_GUIDELINE =
+  "Superpowers skills are written for several harnesses: load a skill by reading its SKILL.md at the listed location, use only the tools listed here, and when no subagent tool is listed do a plan's tasks yourself in this session, even if the plan names subagent-driven-development.";
+
 type Message = ContextWithSystemEvent["messages"][number];
 
 function standaloneUserText(message: Message): string | undefined {
@@ -25,6 +29,10 @@ export default function superpowersUnbootstrap(pi: ExtensionAPI) {
     event.systemPromptOptions.skills = event.systemPromptOptions.skills.map((skill) =>
       skill.name === "using-superpowers" ? { ...skill, disableModelInvocation: true } : skill,
     );
+    const guidelines = event.systemPromptOptions.promptGuidelines;
+    if (!guidelines.includes(TOOL_MAPPING_GUIDELINE)) {
+      event.systemPromptOptions.promptGuidelines = [...guidelines, TOOL_MAPPING_GUIDELINE];
+    }
   });
 
   pi.on("context_with_system", (event, ctx) => {

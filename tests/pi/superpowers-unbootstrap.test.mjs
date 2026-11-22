@@ -67,7 +67,22 @@ test("hides only the bootstrap skill from automatic selection without changing t
   assert.equal(skills[0].disableModelInvocation, false);
   assert.equal(event.systemPromptOptions.skills[0].description, skills[0].description);
   assert.strictEqual(event.systemPromptOptions.skills[1], skills[1]);
-  assert.deepEqual(event.systemPromptOptions.promptGuidelines, ["Preserve this guideline"]);
+});
+
+test("restores the removed Pi tool mapping as one guideline, added once", async () => {
+  const promptGuidelines = freeze(["Preserve this guideline"]);
+  const event = { systemPromptOptions: { skills: [], promptGuidelines } };
+  const handler = handlers().get("before_agent_start");
+  await handler?.(event);
+  await handler?.(event);
+  const added = event.systemPromptOptions.promptGuidelines.slice(1);
+  assert.equal(event.systemPromptOptions.promptGuidelines[0], "Preserve this guideline");
+  assert.equal(added.length, 1);
+  assert.doesNotMatch(added[0], /\n/);
+  assert.match(added[0], /SKILL\.md/);
+  assert.match(added[0], /subagent-driven-development/);
+  assert.match(added[0], /in this session/);
+  assert.deepEqual(promptGuidelines, ["Preserve this guideline"]);
 });
 
 for (const content of [bootstrap, block(bootstrap)]) {

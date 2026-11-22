@@ -13,7 +13,10 @@ brainstorming, without a Superpowers fork. It uses two Pi handlers:
 
 - `before_agent_start` hides only `using-superpowers` from the automatic skill
   catalog, preventing the model from immediately reloading those instructions.
-  The skill registry and optional `/skill:...` commands remain available.
+  The skill registry and optional `/skill:...` commands remain available. It
+  also adds one prompt guideline in place of the bootstrap's “Pi tool mapping”
+  note: read a skill's `SKILL.md`, use the listed tools, and do a plan's tasks
+  in the session when no subagent tool is listed.
 - `context_with_system` removes the narrowly recognized synthetic bootstrap
   after upstream injection. User-authored text in the session projection is
   protected, including an exact pasted bootstrap. Other messages and system/tool
@@ -25,11 +28,14 @@ There is no skill-read gate or separate routing classifier.
 
 ### Activate or roll back
 
-The repository tracks `.pi/settings.json` alongside the extension so every
-checkout receives the same project configuration, using a portable relative path:
+The repository tracks `.pi/settings.json` alongside the extensions so every
+checkout receives the same project configuration, using portable relative paths:
 
 ```json
-{ "extensions": ["../pi-extensions/superpowers-unbootstrap.ts"] }
+{
+  "extensions": ["../pi-extensions/superpowers-unbootstrap.ts", "../pi-extensions/lean-prompt.ts"],
+  "defaultTools": ["+find", "+grep"]
+}
 ```
 
 Personal provider/model settings belong in `~/.pi/agent/`. Keep `.pi/` available
@@ -90,9 +96,62 @@ and explicitly load the Superpowers skills to keep the comparison controlled.
   three with the catalog/filter and three without Superpowers. Each took
   6–10 seconds with no tool calls. All six proposed fixes passed five functional
   checks each.
-- **Empty final replies remain unreproduced:** Captured raw oMLX response text
-  matched Pi’s provider events and transcript for completed conversation turns.
-  No response-text loss was observed in Pi. The search loop does not establish
-  the cause of the earlier completed-but-empty replies, which remains unknown.
+- **Empty final replies were not reproduced under oMLX:** Captured raw oMLX
+  response text matched Pi’s provider events and transcript for completed
+  conversation turns. No response-text loss was observed in Pi. The LM Studio
+  diagnosis below gives a cause for blank replies there; the oMLX runs were not
+  re-examined.
+
+### Tool-calling diagnosis under LM Studio (2026-11-21)
+
+Later the same day the model was served from LM Studio instead of oMLX and its
+raw input and output were logged for every request.
+
+- **This extension is not the cause** of failed tool calls or blank replies.
+- **The failures are single-token sampling slips** that LM Studio does not
+  repair: an unclosed `<think>` (surfaces as blank content), a tool call emitted
+  inside thinking, end-of-sequence mid-sentence, and a broken `"name"` key in the
+  tool-call JSON (dropped with no call).
+- **Rates:** at temperature 1, about 5 in 348 responses and 10 in 291 tool-call
+  bodies; at 0.6, 0 in 119 and 0 in 111. Slips appeared at 1% to 61% context
+  fill, so fill does not predict them.
+- **Planning is the weak stage; execution is strong.** Six fresh “implement from
+  a reviewed plan” trials passed 8/8 acceptance checks.
+- **Full Phase 4 rehearsal** with the README prompts passed at a 56,000-token
+  context: 95 responses, no blank replies, three threshold compactions, 8/8
+  acceptance after one human review note (controls were GET links; they must be
+  POST forms).
+- **Settings:** temperature stays 1; 0.6 is a fallback if JSON errors appear.
+  Context length is 60,000, so Pi compacts near 43,600 tokens.
+
+## Lean prompt for a small context window
+
+Pi repeats the skill catalog and every tool schema in each request. In the first
+Phase 4 rehearsal the model called only `read`, `bash`, `edit` and `write`, yet
+about 3,700 of the 7,066 tokens in the base prompt were skills and tool schemas
+from other packages on the machine, and one of those skills was read twice
+(about 4,600 more tokens). With a 60,000-token window that space matters.
+
+[`lean-prompt.ts`](pi-extensions/lean-prompt.ts) uses `before_agent_start` to:
+
+- advertise only the skills installed in the same directory as
+  `using-superpowers`; other skills stay registered for `/skill:name` but leave
+  the automatic catalog. Without Superpowers the catalog is left alone.
+- declare only Pi's file and shell tools (`read`, `bash`, `edit`, `write`,
+  `grep`, `find`, `ls`). Tools from other extensions, including subagent and
+  MCP tools, are not offered to the model in this project.
+
+It also uses `tool_result` to trim a `bash`, `grep`, `find` or `ls` result over
+8,000 characters to its first 6,000 and last 2,000, with a note to narrow the
+command. In the second rehearsal one `find .` walked `.venv`, returned 51,000
+characters (about 21,000 tokens) and forced a compaction. The `AGENTS.md` rule
+against searching `.venv` was in the prompt and did not stop it. File reads are
+never trimmed, because Superpowers skills are 10,000 to 20,000 characters.
+
+`.pi/settings.json` also enables Pi's built-in `find` and `grep` tools, which
+honour `.gitignore` and so cannot walk `.venv`.
+
+Nothing here blocks or rewrites a tool call. Remove the extension's entry from
+`.pi/settings.json` to get the full catalog, tool set and untrimmed results back.
 
 Reference: [Pi extension events](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md).
