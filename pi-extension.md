@@ -1,8 +1,8 @@
 # Local Pi extensions
 
 Phase 4 uses Superpowers with the automatic bootstrap filter, live-server
-guard, shell timeout, frozen pytest commands in plans, workspace search guard,
-plan approval guard, and branch and finish guard.
+guard, frozen pytest commands in plans, plan approval guard, and branch and
+finish guard.
 
 ## Superpowers skill over-triggering
 
@@ -39,10 +39,8 @@ The project configuration in `.pi/settings.json` uses portable relative paths.
   "extensions": [
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",
-    "../pi-extensions/bash-timeout.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
     "../pi-extensions/phase4-plan-approval.ts",
-    "../pi-extensions/workspace-search.ts",
     "../pi-extensions/keep-branch.ts"
   ],
   "defaultTools": ["+find", "+grep"]
@@ -56,10 +54,9 @@ Pi must trust the project to load local settings. Start a fresh session after
 changing extensions so it starts with the current skill instructions. To restore
 the automatic Superpowers bootstrap, remove its filter from `.pi/settings.json`.
 
-[`workspace-search.ts`](pi-extensions/workspace-search.ts) checks the search root
-for Pi's built-in `find` and `grep` tools. It allows paths that resolve within the
-workspace and blocks paths that point outside it, including through a symlink.
-Shell commands through `bash` use the separate shell guards.
+`defaultTools` enables Pi's built-in `find` and `grep` tools, which honour
+`.gitignore` and so cannot walk `.venv`. In one rehearsal a shell `find .` walked
+`.venv`, returned about 21,000 tokens and forced a compaction.
 
 [`frozen-pytest-plans.ts`](pi-extensions/frozen-pytest-plans.ts) rewrites bare
 pytest commands in Markdown plans saved under `docs/superpowers/plans/`.
@@ -167,63 +164,16 @@ raw input and output were logged for every request.
 - **Settings:** temperature stays 1; 0.6 is a fallback if JSON errors appear.
   Context length is 60,000, so Pi compacts near 43,600 tokens.
 
-## Lean prompt for a small context window
-
-Pi repeats the skill catalog and every tool schema in each request. In the first
-Phase 4 rehearsal the model called only `read`, `bash`, `edit` and `write`, yet
-about 3,700 of the 7,066 tokens in the base prompt were skills and tool schemas
-from other packages on the machine, and one of those skills was read twice
-(about 4,600 more tokens). With a 60,000-token window that space matters.
-
-[`lean-prompt.ts`](pi-extensions/lean-prompt.ts) uses `before_agent_start` to:
-
-- advertise only the skills installed in the same directory as
-  `using-superpowers`; other skills stay registered for `/skill:name` but leave
-  the automatic catalog. Without Superpowers the catalog is left alone.
-- declare only Pi's file and shell tools (`read`, `bash`, `edit`, `write`,
-  `grep`, `find`, `ls`). Tools from other extensions, including subagent and
-  MCP tools, are not offered to the model in this project.
-
-It also uses `tool_result` to trim a `bash`, `grep`, `find` or `ls` result over
-8,000 characters to its first 6,000 and last 2,000, with a note to narrow the
-command. In the second rehearsal one `find .` walked `.venv`, returned 51,000
-characters (about 21,000 tokens) and forced a compaction. The `AGENTS.md` rule
-against searching `.venv` was in the prompt and did not stop it. File reads are
-never trimmed, because Superpowers skills are 10,000 to 20,000 characters.
-
-`.pi/settings.json` also enables Pi's built-in `find` and `grep` tools, which
-honour `.gitignore` and so cannot walk `.venv`.
-
-This extension is opt-in. The shared `.pi/settings.json` leaves the skill
-catalog, tool set, and result lengths to Pi and the enabled extensions.
-
-## A time limit for shell commands
-
-Pi's `bash` tool has no default timeout. In the fourth Phase 4 rehearsal one of
-Mellum's own tests expected a 303 and saw 200, because `TestClient` follows
-redirects unless told otherwise. Instead of fixing the test it started the app
-to look, in four spellings (`uvicorn app:app --reload`, `python -m uvicorn`,
-`.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000`, `python app.py`). Each
-foreground start held the turn until it was killed by hand. The `AGENTS.md` rule
-against starting a server was in the prompt and did not stop it.
-
-[`bash-timeout.ts`](pi-extensions/bash-timeout.ts) uses `tool_call` to give a
-`bash` call that has no timeout 60 seconds, and to cap a longer one at 120.
-Pi then kills the command's process tree and reports `Command timed out`; a
-`tool_result` handler adds a note that a server never returns and the tests are
-the way to check the app. Nothing in the workshop flow runs for more than a few
-seconds.
-
-The limit bounds the effect instead of recognising the command, so it holds for
-any spelling. It does not block a call, and it does not stop a server started in
-the background with `&`: that returns at once and keeps its port until killed.
-
 ## No live server
 
-In the sixth rehearsal, with the time limit in place, Mellum ran
+In the fourth Phase 4 rehearsal one of Mellum's own tests expected a 303 and saw
+200, because `TestClient` follows redirects unless told otherwise. Instead of
+fixing the test it started the app to look, in four spellings, and each
+foreground start held the turn until it was killed by hand. In the sixth it ran
 `uv run uvicorn app:app --port 8000 & echo $!` and then
-`curl -X POST http://localhost:8000/complaints/2/resolve`. Nothing hung, so the
-limit never fired, and the server kept port 8000 after the turn ended.
+`curl -X POST http://localhost:8000/complaints/2/resolve`, and the server kept
+port 8000 after the turn ended. The `AGENTS.md` rule against starting a server
+was in the prompt both times.
 
 [`no-live-server.ts`](pi-extensions/no-live-server.ts) uses `tool_call` to block
 a `bash` call that starts the app as a server, in the foreground or the
@@ -239,7 +189,10 @@ The guard reads the command word of each shell segment (after `&&`, `;`, `|`,
 Replayed over the 332 shell commands recorded in the rehearsals it blocks the
 five server starts and the one `curl`, and nothing else.
 
-It recognises commands by their spelling, so a new spelling can get past it.
-The time limit is the backstop for a start that hangs.
+It recognises commands by their spelling, so a new spelling can get past it. In
+the runs of 2026-11-22 and 2026-11-23 it blocked all 8 attempts to start the app
+(bare `uvicorn`, `python3 app.py`, `uv run python app.py`). A 60-second shell
+time limit added before it never fired once the guard was in place and has been
+removed.
 
 Reference: [Pi extension events](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md).
