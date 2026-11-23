@@ -75,10 +75,12 @@ The guard records approval in the Pi session branch.
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
 Pi can still inspect Git status and create commits on its current branch.
-The guard also checks model-initiated edits that mark Phase 4 done. Both exact
-commands in the [Phase 4 roadmap](specs/roadmap.md#phase-4-verification-and-finish)
-must have passed on the current implementation.
-If the guard refuses the edit, its response lists the two commands.
+The guard refuses any model change that marks Phase 4 done: a `write` or
+`edit` is blocked, and a shell command that changes the heading is rolled back.
+Either way the response says the finish prompt does it. Read-only commands that
+mention `roadmap.md` are not checked. An earlier version let the model mark the
+phase done after both exact checks passed; in one run it refused seven attempts
+over three minutes because the model had run the grader with `-v` added.
 
 When you send the README’s finish prompt, the extension runs both commands
 itself. If both pass and the implementation stays the same during the checks,

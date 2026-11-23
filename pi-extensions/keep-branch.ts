@@ -12,9 +12,9 @@ const CHECKS = [
   "uv run --frozen python -m pytest tests",
   "uv run --frozen python -m pytest -v --tb=line --disable-warnings tests/phase4_acceptance.py",
 ];
-const VERIFY_FIRST = `Before marking Phase 4 done, run both checks separately and ensure they pass:
-${CHECKS.join("\n")}
-Fix any failures, rerun both checks, then update specs/roadmap.md.`;
+const FINISH_ONLY =
+  "The README finish prompt runs both checks and marks Phase 4 done. " +
+  "Leave the roadmap heading as it is and report your results.";
 
 const INTEGRATION_COMMANDS = new Set(["merge", "pull", "push", "switch"]);
 const COMMAND_PREFIXES = new Set(["command", "env", "exec", "if", "then", "else", "do", "!"]);
@@ -65,19 +65,9 @@ function implementation(cwd: string): string {
   return hash.digest("hex");
 }
 
-function readsRoadmap(command: string): boolean {
-  return !/[;&|><`$()\n]/.test(command) &&
-    /^(?:cat|rg|grep|head|tail|sed (?:-n|--quiet)|git (?:diff|show|status|add|log))\s/.test(command) &&
-    !/^sed\b.*(?:-i|--in-place)/.test(command);
-}
-
 export default function keepBranch(pi: ExtensionAPI) {
-  const passes = new Map<string, string>();
-  const before = new Map<string, { heading?: string; implementation?: string }>();
+  const before = new Map<string, string | undefined>();
   let finishing = false;
-  const verified = (cwd: string) =>
-    passes.size === CHECKS.length &&
-    new Set([...passes.values(), implementation(cwd)]).size === 1;
 
   pi.on("input", async (event, ctx) => {
     if (event.source === "extension" || event.text.trim() !== FINISH_PROMPT) return;
@@ -87,7 +77,6 @@ export default function keepBranch(pi: ExtensionAPI) {
     }
 
     finishing = true;
-    passes.clear();
     const checks: { command: string; passed: boolean; output: string }[] = [];
     let markedDone = false;
     let summary: string;
@@ -143,55 +132,39 @@ export default function keepBranch(pi: ExtensionAPI) {
     const heading = phaseHeading(ctx.cwd);
     const pending = heading && !DONE.test(heading);
     if (event.toolName === "bash" && typeof event.input.command === "string") {
-      const command = event.input.command.trim();
-      if (changesBranch(command)) return {
+      if (changesBranch(event.input.command.trim())) return {
         block: true,
         reason: "Keep the current branch as-is for the workshop. Leave its commits on this branch and report the verification results.",
       };
-      if (pending && /\broadmap\.md\b/.test(command) && !readsRoadmap(command) && !verified(ctx.cwd)) {
-        return { block: true, reason: VERIFY_FIRST };
-      }
-      before.set(event.toolCallId, {
-        heading,
-        implementation: pending && CHECKS.includes(command) ? implementation(ctx.cwd) : undefined,
-      });
+      before.set(event.toolCallId, heading);
     }
 
     if (
-      pending && (event.toolName === "write" || event.toolName === "edit") &&
+      (event.toolName === "write" || event.toolName === "edit") &&
       typeof event.input.path === "string" && resolve(ctx.cwd, event.input.path) === join(ctx.cwd, ROADMAP)
     ) {
-      const path = join(ctx.cwd, ROADMAP);
-      let next = event.toolName === "write" ? event.input.content : readFileSync(path, "utf8");
-      if (event.toolName === "edit" && Array.isArray(event.input.edits)) {
-        for (const { oldText, newText } of event.input.edits) next = next.replace(oldText, () => newText);
+      if (pending) {
+        let next = event.toolName === "write" ? event.input.content : readFileSync(join(ctx.cwd, ROADMAP), "utf8");
+        if (event.toolName === "edit" && Array.isArray(event.input.edits)) {
+          for (const { oldText, newText } of event.input.edits) next = next.replace(oldText, () => newText);
+        }
+        const nextHeading = typeof next === "string" ? next.match(PHASE_4)?.[0] : undefined;
+        if (nextHeading && DONE.test(nextHeading)) return { block: true, reason: FINISH_ONLY };
       }
-      const nextHeading = next.match(PHASE_4)?.[0];
-      if (nextHeading && DONE.test(nextHeading) && !verified(ctx.cwd)) {
-        return { block: true, reason: VERIFY_FIRST };
-      }
-      before.set(event.toolCallId, { heading });
+      before.set(event.toolCallId, heading);
     }
   });
 
   pi.on("tool_result", (event, ctx) => {
+    if (!before.has(event.toolCallId)) return;
     const previous = before.get(event.toolCallId);
     before.delete(event.toolCallId);
-    if (!previous) return;
 
-    if (event.toolName === "bash" && typeof event.input.command === "string") {
-      const command = event.input.command.trim();
-      if (CHECKS.includes(command) && previous.implementation) {
-        if (event.isError || previous.implementation !== implementation(ctx.cwd)) passes.clear();
-        else passes.set(command, previous.implementation);
-      }
-    }
-
-    // A shell script can update the roadmap without naming it in the tool input.
-    if (previous.heading && !DONE.test(previous.heading) && DONE.test(phaseHeading(ctx.cwd) ?? "") && !verified(ctx.cwd)) {
+    // A shell script can mark the roadmap without naming it in the tool input.
+    if (previous && !DONE.test(previous) && DONE.test(phaseHeading(ctx.cwd) ?? "")) {
       const path = join(ctx.cwd, ROADMAP);
-      writeFileSync(path, readFileSync(path, "utf8").replace(PHASE_4, () => previous.heading!));
-      return { isError: true, content: [...event.content, { type: "text", text: VERIFY_FIRST }] };
+      writeFileSync(path, readFileSync(path, "utf8").replace(PHASE_4, () => previous));
+      return { isError: true, content: [...event.content, { type: "text", text: FINISH_ONLY }] };
     }
   });
 }
