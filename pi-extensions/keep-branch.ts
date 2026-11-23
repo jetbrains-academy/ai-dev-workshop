@@ -12,6 +12,19 @@ const CHECKS = [
   "uv run --frozen python -m pytest tests",
   "uv run --frozen python -m pytest -v --tb=line --disable-warnings tests/phase4_acceptance.py",
 ];
+// The grader as shipped. Models weakened it in 3 of 28 trial runs, and the finish prompt then
+// marked two of them done. grader-pin.test.mjs fails if the file changes without this hash.
+export const GRADER = "tests/phase4_acceptance.py";
+export const GRADER_SHA256 = "9dc24d589af769b88c23b6529d8f207af664afdbe3d58521a4823e670ee791ac";
+const GRADER_LOCKED =
+  `${GRADER} is the Phase 4 grader and stays unchanged. ` +
+  "Fix the implementation or your own tests under tests/ instead.";
+const sha256 = (data: Buffer) => createHash("sha256").update(data).digest("hex");
+function graderBytes(cwd: string): Buffer | undefined {
+  const path = join(cwd, GRADER);
+  if (existsSync(path)) return readFileSync(path);
+}
+
 const FINISH_ONLY =
   "The README finish prompt runs both checks and marks Phase 4 done. " +
   "Leave the roadmap heading as it is and report your results.";
@@ -68,6 +81,7 @@ function implementation(cwd: string): string {
 export default function keepBranch(pi: ExtensionAPI) {
   const before = new Map<string, string | undefined>();
   let finishing = false;
+  let shipped: Buffer | undefined;
 
   pi.on("input", async (event, ctx) => {
     if (event.source === "extension" || event.text.trim() !== FINISH_PROMPT) return;
@@ -81,6 +95,11 @@ export default function keepBranch(pi: ExtensionAPI) {
     let markedDone = false;
     let summary: string;
     try {
+      const grader = graderBytes(ctx.cwd);
+      if (!grader || sha256(grader) !== GRADER_SHA256) {
+        throw new Error(`${GRADER} differs from the workshop's grader. ` +
+          `Restore it with \`git checkout -- ${GRADER}\` and send the finish prompt again.`);
+      }
       const revision = implementation(ctx.cwd);
       let stable = true;
       for (const command of CHECKS) {
@@ -110,7 +129,7 @@ export default function keepBranch(pi: ExtensionAPI) {
           : "Phase 4 was not marked done because implementation files changed during verification.";
       }
     } catch (error) {
-      summary = "Phase 4 finish could not complete. " + String(error);
+      summary = "Phase 4 finish could not complete. " + (error instanceof Error ? error.message : String(error));
     } finally {
       finishing = false;
     }
@@ -129,6 +148,14 @@ export default function keepBranch(pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", (event, ctx) => {
+    if (!shipped) {
+      const grader = graderBytes(ctx.cwd);
+      if (grader && sha256(grader) === GRADER_SHA256) shipped = grader;
+    }
+    if ((event.toolName === "write" || event.toolName === "edit") && typeof event.input.path === "string" &&
+        resolve(ctx.cwd, event.input.path) === join(ctx.cwd, GRADER)) {
+      return { block: true, reason: GRADER_LOCKED };
+    }
     const heading = phaseHeading(ctx.cwd);
     const pending = heading && !DONE.test(heading);
     if (event.toolName === "bash" && typeof event.input.command === "string") {
@@ -160,11 +187,21 @@ export default function keepBranch(pi: ExtensionAPI) {
     const previous = before.get(event.toolCallId);
     before.delete(event.toolCallId);
 
+    const notes: string[] = [];
     // A shell script can mark the roadmap without naming it in the tool input.
     if (previous && !DONE.test(previous) && DONE.test(phaseHeading(ctx.cwd) ?? "")) {
       const path = join(ctx.cwd, ROADMAP);
       writeFileSync(path, readFileSync(path, "utf8").replace(PHASE_4, () => previous));
-      return { isError: true, content: [...event.content, { type: "text", text: FINISH_ONLY }] };
+      notes.push(FINISH_ONLY);
+    }
+    // ...or change the grader: put the shipped copy back.
+    const grader = graderBytes(ctx.cwd);
+    if (shipped && (!grader || sha256(grader) !== GRADER_SHA256)) {
+      writeFileSync(join(ctx.cwd, GRADER), shipped);
+      notes.push(`Restored ${GRADER}. ${GRADER_LOCKED}`);
+    }
+    if (notes.length) {
+      return { isError: true, content: [...event.content, ...notes.map((text) => ({ type: "text" as const, text }))] };
     }
   });
 }

@@ -129,8 +129,16 @@ mention `roadmap.md` are not checked. An earlier version let the model mark the
 phase done after both exact checks passed; in one run it refused seven attempts
 over three minutes because the model had run the grader with `-v` added.
 
-When you send the README’s finish prompt, the extension runs both commands
-itself. If both pass and the implementation stays the same during the checks,
+The guard also keeps the grader, `tests/phase4_acceptance.py`, as shipped: a
+`write` or `edit` to it is refused, and a shell command that changes it is
+rolled back. In the 2026-11-23 trials models weakened the grader in 3 of 28
+runs, and the finish prompt marked two of them done. The extension pins the
+grader's SHA-256; `tests/pi/grader-pin.test.mjs` fails if the file changes
+without the pin.
+
+When you send the README’s finish prompt, the extension first checks the
+grader against that pin and refuses to finish if it differs. Then it runs both
+commands itself. If both pass and the implementation stays the same during the checks,
 Pi marks Phase 4 done in `specs/roadmap.md` and reports the results without
 starting a model turn. If a check fails, Pi reports the failure and leaves the
 roadmap heading as it was.
