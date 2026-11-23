@@ -1,8 +1,8 @@
 # Local Pi extensions
 
 Phase 4 uses Superpowers with the automatic bootstrap filter, live-server
-guard, frozen pytest commands in plans, plan approval guard, and branch and
-finish guard.
+guard, frozen pytest commands in plans, a FastAPI note on the plan skills, plan
+approval guard, and branch and finish guard.
 
 ## Superpowers skill over-triggering
 
@@ -40,6 +40,7 @@ The project configuration in `.pi/settings.json` uses portable relative paths.
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
+    "../pi-extensions/fastapi-plan-note.ts",
     "../pi-extensions/phase4-plan-approval.ts",
     "../pi-extensions/keep-branch.ts"
   ],
@@ -69,6 +70,15 @@ server start, as the live-server guard recognises it, becomes
 The tool result reports each correction. In 7 of 17 saved plans Mellum wrote a
 server step or a bare `python` command, and in 3 of those it started that server
 during execution.
+
+[`fastapi-plan-note.ts`](pi-extensions/fastapi-plan-note.ts) appends a short
+FastAPI note (about 230 tokens) to the tool result whenever the model reads the
+Superpowers `writing-plans` or `executing-plans` skill: typed `{id}` routes,
+303 and 404, POST forms, `follow_redirects=False`, pairing each unknown-id test
+with a successful request, fixtures that restore shared state, and checking in
+process. The project's FastAPI skill was read in about half the runs, with no
+measurable effect. The note is on trial: 8 runs with it against 8 without decide
+whether it stays.
 
 ### Phase 4 approval and finish
 
