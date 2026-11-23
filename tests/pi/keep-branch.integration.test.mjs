@@ -128,6 +128,7 @@ test("the Phase 4 grader stays as shipped: edits are refused, shell changes roll
     const refused = await call(toolName, input);
     assert.equal(refused?.block, true, toolName);
     assert.match(refused.reason, /grader/i);
+    assert.match(refused.reason, /tests\/test_phase4\.py/);
   }
   assert.equal((await call("read", { path: "tests/phase4_acceptance.py" }))?.block, undefined);
   assert.equal((await call("edit", { path: "tests/test_board.py", edits: [{ oldText: "a", newText: "b" }] }))?.block, undefined);

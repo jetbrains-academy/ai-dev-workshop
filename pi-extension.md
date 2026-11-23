@@ -90,7 +90,9 @@ server start, as the live-server guard recognises it, becomes
 `uv run --frozen python -m pytest tests`, unless the words just before it forbid
 it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
 Python code blocks stay as written.
-It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
+Plan steps that would create, modify or `git add` the grader,
+`tests/phase4_acceptance.py`, are pointed at `tests/test_phase4.py`; steps that
+only run the grader keep it. It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
 alone, because the `subagent-driven-development` skill it recommends is about
 7,000 tokens and this session has no subagent tool. The tool result reports each
 correction. In 7 of 17 saved plans Mellum wrote a
@@ -131,8 +133,10 @@ over three minutes because the model had run the grader with `-v` added.
 
 The guard also keeps the grader, `tests/phase4_acceptance.py`, as shipped: a
 `write` or `edit` to it is refused, and a shell command that changes it is
-rolled back. In the 2026-11-23 trials models weakened the grader in 3 of 28
-runs, and the finish prompt marked two of them done. The extension pins the
+rolled back. The refusal sends the model to a new file, `tests/test_phase4.py`,
+for its own tests. In the 2026-11-23 trials models weakened the grader in 3 of 28
+runs, and the finish prompt marked two of them done; in a later run a plan step
+to "update" the grader led to 12 refusals over about four minutes. The extension pins the
 grader's SHA-256; `tests/pi/grader-pin.test.mjs` fails if the file changes
 without the pin.
 

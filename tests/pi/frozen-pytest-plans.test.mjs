@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { freezePlanCommands, nativePlanHeader } from "../../pi-extensions/frozen-pytest-plans.ts";
+import { freezePlanCommands, nativePlanHeader, redirectGraderEdits } from "../../pi-extensions/frozen-pytest-plans.ts";
 
 const SUITE = "uv run --frozen python -m pytest tests";
 const lines = (...parts) => parts.join("\n");
@@ -83,4 +83,30 @@ test("points the plan header at executing-plans only", () => {
   assert.equal(nativePlanHeader("- **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development"),
     "- **REQUIRED SUB-SKILL:** Use superpowers:executing-plans");
   assert.equal(nativePlanHeader("Mentions subagent-driven-development in prose."), "Mentions subagent-driven-development in prose.");
+});
+
+test("points plan steps that change the grader at a new test file", () => {
+  const plan = lines(
+    "### Task 4: Update phase4_acceptance.py tests",
+    "**Files:**",
+    "- Modify: `tests/phase4_acceptance.py`",
+    "- Create: tests/phase4_acceptance.py",
+    "- Test: `tests/phase4_acceptance.py::test_unknown_id_returns_404`",
+    "Run: `uv run --frozen python -m pytest tests/phase4_acceptance.py`",
+    "```bash", "git add tests/phase4_acceptance.py app.py", "```",
+  );
+  assert.deepEqual(redirectGraderEdits(plan), {
+    markdown: lines(
+      "### Task 4: Update phase4_acceptance.py tests",
+      "**Files:**",
+      "- Modify: `tests/test_phase4.py`",
+      "- Create: tests/test_phase4.py",
+      "- Test: `tests/phase4_acceptance.py::test_unknown_id_returns_404`",
+      "Run: `uv run --frozen python -m pytest tests/phase4_acceptance.py`",
+      "```bash", "git add tests/test_phase4.py app.py", "```",
+    ),
+    redirected: 3,
+  });
+  const once = redirectGraderEdits(plan).markdown;
+  assert.deepEqual(redirectGraderEdits(once), { markdown: once, redirected: 0 });
 });

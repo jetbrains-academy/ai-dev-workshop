@@ -18,7 +18,7 @@ export const GRADER = "tests/phase4_acceptance.py";
 export const GRADER_SHA256 = "9dc24d589af769b88c23b6529d8f207af664afdbe3d58521a4823e670ee791ac";
 const GRADER_LOCKED =
   `${GRADER} is the Phase 4 grader and stays unchanged. ` +
-  "Fix the implementation or your own tests under tests/ instead.";
+  "Put your own Phase 4 tests in a new file, tests/test_phase4.py, and fix the implementation, not the grader.";
 const sha256 = (data: Buffer) => createHash("sha256").update(data).digest("hex");
 function graderBytes(cwd: string): Buffer | undefined {
   const path = join(cwd, GRADER);

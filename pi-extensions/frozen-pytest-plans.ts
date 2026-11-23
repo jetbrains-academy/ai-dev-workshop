@@ -18,6 +18,21 @@ export interface FrozenPlan {
   serverStarts: number;
 }
 
+const GRADER = "tests/phase4_acceptance.py";
+const OWN_TESTS = "tests/test_phase4.py";
+
+/** Plan steps that would create, modify or stage the grader go to the model's own test file instead. */
+export function redirectGraderEdits(markdown: string): { markdown: string; redirected: number } {
+  let redirected = 0;
+  const lines = markdown.split("\n").map((line) => {
+    const changes = /^\s*(?:[-*+]\s+)?(?:\*\*)?(?:modify|create):/i.test(line) || /\bgit[ \t]+add\b/.test(line);
+    if (!changes || !line.includes(GRADER)) return line;
+    redirected += 1;
+    return line.replaceAll(GRADER, OWN_TESTS);
+  });
+  return { markdown: lines.join("\n"), redirected };
+}
+
 /** This session has no subagent tool: point the writing-plans header at executing-plans only. */
 export function nativePlanHeader(markdown: string): string {
   return markdown.split("\n").map((line) => !/REQUIRED SUB-SKILL/.test(line) ? line : line
@@ -107,8 +122,11 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
     }
     const corrected: string[] = [];
     let serverStarts = 0;
+    let graderSteps = 0;
     for (const [path, content] of changed) {
-      const frozen = freezePlanCommands(nativePlanHeader(content));
+      const kept = redirectGraderEdits(nativePlanHeader(content));
+      const frozen = freezePlanCommands(kept.markdown);
+      graderSteps += kept.redirected;
       if (frozen.markdown === content) continue;
       writeFileSync(path, frozen.markdown);
       corrected.push(relative(ctx.cwd, path));
@@ -120,6 +138,10 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
     if (serverStarts) {
       text += ` Replaced ${serverStarts} server start${serverStarts === 1 ? "" : "s"} with \`${TEST_SUITE}\`: ` +
         "check routes in process with `TestClient(app)` and `follow_redirects=False`, not a live server.";
+    }
+    if (graderSteps) {
+      text += ` Pointed ${graderSteps} plan step${graderSteps === 1 ? "" : "s"} that changed ${GRADER} at ` +
+        `${OWN_TESTS}: the grader stays as shipped.`;
     }
     return { content: [...event.content, { type: "text", text }] };
   });
