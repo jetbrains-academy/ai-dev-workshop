@@ -5,3 +5,4 @@ __pycache__/
 .worktrees/
 .agents/
 .claude/
+progress.md
