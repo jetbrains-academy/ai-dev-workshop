@@ -90,7 +90,8 @@ The plan looks good. Proceed with native execution.
 ```
 
 If Pi skips a skill, use `/skill:writing-plans` or `/skill:executing-plans`
-with the corresponding prompt. If it sends an empty reply, send `Continue.`
+with the corresponding prompt. If it sends an empty reply, or a reply that is
+only a tool call printed as text (`{"name": "read", ...}`), send `Continue.`
 If planning stops right after Pi saves its plan, review the plan and send the
 approval prompt.
 
