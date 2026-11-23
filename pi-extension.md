@@ -1,7 +1,8 @@
 # Local Pi extensions
 
 Phase 4 uses Superpowers with the automatic bootstrap filter, live-server
-guard, shell timeout, workspace search guard, and branch guard.
+guard, shell timeout, frozen pytest commands in plans, workspace search guard,
+plan approval guard, and branch and finish guard.
 
 ## Superpowers skill over-triggering
 
@@ -50,6 +51,8 @@ checkout so Superpowers can run reviews inline.
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/bash-timeout.ts",
+    "../pi-extensions/frozen-pytest-plans.ts",
+    "../pi-extensions/phase4-plan-approval.ts",
     "../pi-extensions/workspace-search.ts",
     "../pi-extensions/keep-branch.ts"
   ],
@@ -69,18 +72,32 @@ for Pi's built-in `find` and `grep` tools. It allows paths that resolve within t
 workspace and blocks paths that point outside it, including through a symlink.
 Shell commands through `bash` use the separate shell guards.
 
-[`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
-push, branch switch, and branch deletion commands through Pi’s `bash` tool.
-Pi can still inspect Git status and create commits on its current branch.
-It also gates the Phase 4 Done heading on both exact commands in
-[`AGENTS.md`](AGENTS.md) passing in the current Pi session. Changes to Python
-files, templates, or dependency configuration make previous passes stale. If
-an update is refused, Pi gets both commands in the tool response.
-
 [`frozen-pytest-plans.ts`](pi-extensions/frozen-pytest-plans.ts) rewrites bare
 pytest commands in Markdown plans saved under `docs/superpowers/plans/`.
 It preserves test arguments and reports the correction in Pi's tool result so
 the saved plan can be reviewed with the project's frozen uv commands.
+
+### Phase 4 approval and finish
+
+[`phase4-plan-approval.ts`](pi-extensions/phase4-plan-approval.ts) activates
+when you ask Pi to brainstorm or plan Phase 4. Before approval, Pi can inspect
+the repo and write design or plan Markdown under `docs/superpowers/`. To
+enable implementation, wait for Pi to save a new or revised plan and stop,
+then send the approval prompt from the [README](README.md#phase-4-pi--mellum--superpowers).
+The guard records approval in the Pi session branch.
+
+[`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
+push, branch switch, and branch deletion commands through Pi’s `bash` tool.
+Pi can still inspect Git status and create commits on its current branch.
+The guard also checks model-initiated edits that mark Phase 4 done. Both exact
+commands in [`AGENTS.md`](AGENTS.md) must have passed on the current implementation.
+If the guard refuses the edit, its response lists the two commands.
+
+When you send the README’s finish prompt, the extension runs both commands
+itself. If both pass and the implementation stays the same during the checks,
+Pi marks Phase 4 done in `specs/roadmap.md` and reports the results without
+starting a model turn. If a check fails, Pi reports the failure and leaves the
+roadmap heading as it was.
 
 ### Verification
 
@@ -187,8 +204,8 @@ never trimmed, because Superpowers skills are 10,000 to 20,000 characters.
 `.pi/settings.json` also enables Pi's built-in `find` and `grep` tools, which
 honour `.gitignore` and so cannot walk `.venv`.
 
-Nothing in this extension blocks or rewrites a tool call. Remove its entry from
-`.pi/settings.json` to get the full catalog, tool set and untrimmed results back.
+This extension is opt-in. The shared `.pi/settings.json` leaves the skill
+catalog, tool set, and result lengths to Pi and the enabled extensions.
 
 ## A time limit for shell commands
 
