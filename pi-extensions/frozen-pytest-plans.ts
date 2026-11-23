@@ -48,12 +48,16 @@ export function freezePlanCommands(markdown: string): FrozenPlan {
 
     const commandLabel = /^\s*(?:[-*+]\s+)?(?:\*\*)?(?:run|command):(?:\*\*)?[ \t]*/i;
     const label = line.match(commandLabel);
-    const servers = Boolean(label) || !PROHIBITION.test(line);
     if (label && !line.slice(label[0].length).startsWith("`")) {
       line = label[0] + freeze(line.slice(label[0].length), true);
     }
-    return line.replace(/(`+)([^`\r\n]+)\1/g, (span, quote, command) =>
-      !label && !/\s/.test(command.trim()) ? span : quote + freeze(command, servers) + quote);
+    // Judge each span by the words since the previous one: "Run: `pytest`; never `uvicorn`".
+    let since = label ? label[0].length : 0;
+    return line.replace(/(`+)([^`\r\n]+)\1/g, (span: string, quote: string, command: string, offset: number) => {
+      const forbidden = PROHIBITION.test(line.slice(since, offset));
+      since = offset + span.length;
+      return !label && !/\s/.test(command.trim()) ? span : quote + freeze(command, !forbidden) + quote;
+    });
   }).join("\n");
   return { markdown: frozen, serverStarts };
 }

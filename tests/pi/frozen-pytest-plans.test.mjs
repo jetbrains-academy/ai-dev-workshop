@@ -49,6 +49,20 @@ test("leaves prose, prohibitions and Python code alone", () => {
   });
 });
 
+test("keeps commands a labeled line forbids", () => {
+  const plan = lines(
+    "Run: `uv run pytest tests -v`; do not start `uvicorn`",
+    "Run: `pytest -q` (never `python app.py`)",
+  );
+  assert.deepEqual(freezePlanCommands(plan), {
+    markdown: lines(
+      "Run: `uv run --frozen python -m pytest tests -v`; do not start `uvicorn`",
+      "Run: `uv run --frozen python -m pytest -q` (never `uv run --frozen python app.py`)",
+    ),
+    serverStarts: 0,
+  });
+});
+
 test("is idempotent", () => {
   for (const plan of [
     lines("Run: `uv run python app.py` and navigate to /complaints", "```bash", "python3 app.py &", "```"),

@@ -65,8 +65,9 @@ fences, after `Run:` or `Command:` labels, and in inline code spans. Bare pytest
 becomes `uv run --frozen python -m pytest`, and `python`, `python3` or
 `uv run python` becomes `uv run --frozen python`, keeping their arguments. A
 server start, as the live-server guard recognises it, becomes
-`uv run --frozen python -m pytest tests`, unless the line forbids it ("Never run
-`python app.py`"). Single-word code spans and Python code blocks stay as written.
+`uv run --frozen python -m pytest tests`, unless the words just before it forbid
+it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
+Python code blocks stay as written.
 The tool result reports each correction. In 7 of 17 saved plans Mellum wrote a
 server step or a bare `python` command, and in 3 of those it started that server
 during execution.
