@@ -77,6 +77,11 @@ It also gates the Phase 4 Done heading on both exact commands in
 files, templates, or dependency configuration make previous passes stale. If
 an update is refused, Pi gets both commands in the tool response.
 
+[`frozen-pytest-plans.ts`](pi-extensions/frozen-pytest-plans.ts) rewrites bare
+pytest commands in Markdown plans saved under `docs/superpowers/plans/`.
+It preserves test arguments and reports the correction in Pi's tool result so
+the saved plan can be reviewed with the project's frozen uv commands.
+
 ### Verification
 
 Tested with Pi 1.4.0, Superpowers 7.0.0, and Node 25.8.1. Tests use Node’s native

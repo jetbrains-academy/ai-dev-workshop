@@ -12,6 +12,7 @@
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/bash-timeout.ts",
+    "../pi-extensions/frozen-pytest-plans.ts",
     "../pi-extensions/workspace-search.ts",
     "../pi-extensions/keep-branch.ts"
   ],
