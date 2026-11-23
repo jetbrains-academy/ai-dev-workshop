@@ -1,4 +1,13 @@
 {
+  "packages": [
+    {
+      "source": "https://github.com/nicobailon/pi-subagents",
+      "autoload": false,
+      "extensions": ["!**"],
+      "skills": ["!**"],
+      "prompts": ["!**"]
+    }
+  ],
   "extensions": [
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",

@@ -37,9 +37,21 @@ There is no skill-read gate or separate routing classifier.
 ### Activate or roll back
 
 The project configuration in `.pi/settings.json` uses portable relative paths.
+The package filter disables a globally installed `pi-subagents` for this
+checkout, so the demo offers no subagent tool. The trials ran without one, and
+saved plans point at `executing-plans`.
 
 ```json
 {
+  "packages": [
+    {
+      "source": "https://github.com/nicobailon/pi-subagents",
+      "autoload": false,
+      "extensions": ["!**"],
+      "skills": ["!**"],
+      "prompts": ["!**"]
+    }
+  ],
   "extensions": [
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",
