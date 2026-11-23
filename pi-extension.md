@@ -72,6 +72,10 @@ Shell commands through `bash` use the separate shell guards.
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
 Pi can still inspect Git status and create commits on its current branch.
+It also gates the Phase 4 Done heading on both exact commands in
+[`AGENTS.md`](AGENTS.md) passing in the current Pi session. Changes to Python
+files, templates, or dependency configuration make previous passes stale. If
+an update is refused, Pi gets both commands in the tool response.
 
 ### Verification
 
