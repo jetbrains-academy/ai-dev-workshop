@@ -7,6 +7,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const ROADMAP = "specs/roadmap.md";
 const PHASE_4 = /^## Phase 4\b[^\r\n]*/m;
 const DONE = /\b(?:done|complete|completed)\b/i;
+const FINISH_PROMPT = "Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.";
 const CHECKS = [
   "uv run --frozen python -m pytest tests",
   "uv run --frozen python -m pytest -v --tb=line --disable-warnings tests/phase4_acceptance.py",
@@ -73,9 +74,70 @@ function readsRoadmap(command: string): boolean {
 export default function keepBranch(pi: ExtensionAPI) {
   const passes = new Map<string, string>();
   const before = new Map<string, { heading?: string; implementation?: string }>();
+  let finishing = false;
   const verified = (cwd: string) =>
     passes.size === CHECKS.length &&
     new Set([...passes.values(), implementation(cwd)]).size === 1;
+
+  pi.on("input", async (event, ctx) => {
+    if (event.source === "extension" || event.text.trim() !== FINISH_PROMPT) return;
+    if (finishing || event.streamingBehavior || !ctx.isIdle()) {
+      ctx.ui.notify("Wait for the current turn to end before finishing Phase 4.", "warning");
+      return { action: "handled" };
+    }
+
+    finishing = true;
+    passes.clear();
+    const checks: { command: string; passed: boolean; output: string }[] = [];
+    let markedDone = false;
+    let summary: string;
+    try {
+      const revision = implementation(ctx.cwd);
+      let stable = true;
+      for (const command of CHECKS) {
+        const [program, ...args] = command.split(" ");
+        try {
+          const result = await pi.exec(program, args, { cwd: ctx.cwd, timeout: 60_000 });
+          const passed = result.code === 0 && !result.killed;
+          const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+          checks.push({ command, passed, output: output.slice(passed ? -1000 : -8000) });
+        } catch (error) {
+          checks.push({ command, passed: false, output: String(error) });
+        }
+        stable = stable && implementation(ctx.cwd) === revision;
+      }
+
+      if (stable && checks.every((check) => check.passed)) {
+        const path = join(ctx.cwd, ROADMAP);
+        const roadmap = readFileSync(path, "utf8");
+        const heading = roadmap.match(PHASE_4)?.[0];
+        if (!heading) throw new Error("Phase 4 heading is missing from specs/roadmap.md.");
+        if (!DONE.test(heading)) writeFileSync(path, roadmap.replace(PHASE_4, () => heading + " (Done)"));
+        markedDone = true;
+        summary = "Phase 4 is marked done in specs/roadmap.md. The current branch was kept as-is.";
+      } else {
+        summary = stable
+          ? "Phase 4 was not marked done because a verification check failed."
+          : "Phase 4 was not marked done because implementation files changed during verification.";
+      }
+    } catch (error) {
+      summary = "Phase 4 finish could not complete. " + String(error);
+    } finally {
+      finishing = false;
+    }
+
+    const report = checks.map(({ command, passed, output }) => {
+      const result = passed ? output.split("\n").at(-1) : output;
+      return `${passed ? "PASS" : "FAIL"} \`${command}\`${result ? "\n" + result : ""}`;
+    });
+    pi.sendMessage({
+      customType: "workshop-phase4-finish",
+      display: true,
+      content: [summary, ...report].join("\n\n"),
+      details: { markedDone, checks },
+    });
+    return { action: "handled" };
+  });
 
   pi.on("tool_call", (event, ctx) => {
     const heading = phaseHeading(ctx.cwd);
