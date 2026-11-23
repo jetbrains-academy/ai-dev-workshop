@@ -67,9 +67,21 @@ function savedPlans(cwd: string): Record<string, string> {
   }));
 }
 
+// `find` actions that run or write something.
+const FIND_ACTIONS = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
+
 function readOnlyShell(command: unknown): boolean {
   if (typeof command !== "string") return false;
-  const words = command.trim().split(/[ \t]+/);
+  const trimmed = command.trim();
+  // Planning names plan files by date and looks for earlier plans; both only read.
+  if (/^date(?:[ \t]+\+[^\s;&|<>`$()]+)?$/.test(trimmed)) return true;
+  if (/^find[ \t]/.test(trimmed) && !/[;&|<>`$()\n\\]/.test(trimmed)) {
+    const args = trimmed.split(/[ \t]+/).slice(1);
+    const paths = args.slice(0, Math.max(0, args.findIndex((word) => word.startsWith("-"))) || args.length);
+    return args.every((word) => !FIND_ACTIONS.has(word))
+      && paths.every((path) => !path.startsWith("/") && !path.split("/").includes(".."));
+  }
+  const words = trimmed.split(/[ \t]+/);
   if (!words.every((word) => /^[a-z0-9_./-]+$/i.test(word))) return false;
   const [program, subcommand, ...args] = words;
   if (program === "pwd") return words.length === 1;

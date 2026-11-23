@@ -76,3 +76,19 @@ test("once a new plan is saved, a refused code edit ends the turn", async (conte
   assert.equal((await call("read", { path: "models.py" }))?.block, undefined);
   assert.deepEqual(errors, []);
 });
+
+test("planning may read the date and find files, but not change anything", async (context) => {
+  const { errors, say, start, call } = await setup(context);
+  await say(planning);
+  await start(planning);
+  for (const command of ["date", "date +%Y-%m-%d", "find docs -name '*plan*' -o -name '*plans*'", "find docs/superpowers -type f"]) {
+    assert.equal((await call("bash", { command }))?.block, undefined, command);
+  }
+  for (const command of [
+    "date -s 2020-01-01", "date 0101000020", "date; rm models.py", "find . -delete", "find docs -exec rm {} \;",
+    "find /etc -name passwd", "find ../ -name x", "find docs -name x > out.txt", "find docs -fprint out.txt",
+  ]) {
+    assert.equal((await call("bash", { command }))?.block, true, command);
+  }
+  assert.deepEqual(errors, []);
+});
