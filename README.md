@@ -66,7 +66,8 @@ Use Superpowers to finish the development branch, then mark Phase 3 in the roadm
 ### Phase 4 (Pi + Mellum + Superpowers)
 
 Start a fresh Pi session in Air, trust the project settings if prompted, and
-select Mellum through LM Studio. Use the [60K context setting](setup.md#lm-studio).
+select Mellum through LM Studio. Set Pi’s thinking level to High and use the
+[60K context setting](setup.md#lm-studio).
 
 ```
 Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.
