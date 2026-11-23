@@ -10,6 +10,14 @@ The using-superpowers skill content is included below and is already loaded for 
 `;
 
 // The removed bootstrap also carried the Pi tool mapping; this line keeps the part plans rely on.
+// The bootstrap, plus skills this session cannot use: no subagent tool, no worktrees, and the
+// finish prompt is scripted. In the 2026-11-23 trial their reads were about 5k tokens per run.
+// They stay registered for explicit `/skill:name` use.
+const HIDDEN = new Set([
+  "using-superpowers", "subagent-driven-development", "dispatching-parallel-agents",
+  "using-git-worktrees", "finishing-a-development-branch",
+]);
+
 const TOOL_MAPPING_GUIDELINE =
   "Superpowers skills are written for several harnesses: load a skill by reading its SKILL.md at the listed location, use only the tools listed here, and when no subagent tool is listed do a plan's tasks yourself in this session, even if the plan names subagent-driven-development.";
 
@@ -27,7 +35,7 @@ export default function superpowersUnbootstrap(pi: ExtensionAPI) {
   pi.on("before_agent_start", (event) => {
     // Change the prompt copy only; the registry still supports explicit invocation.
     event.systemPromptOptions.skills = event.systemPromptOptions.skills.map((skill) =>
-      skill.name === "using-superpowers" ? { ...skill, disableModelInvocation: true } : skill,
+      HIDDEN.has(skill.name) ? { ...skill, disableModelInvocation: true } : skill,
     );
     const guidelines = event.systemPromptOptions.promptGuidelines;
     if (!guidelines.includes(TOOL_MAPPING_GUIDELINE)) {

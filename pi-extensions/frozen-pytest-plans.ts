@@ -18,6 +18,14 @@ export interface FrozenPlan {
   serverStarts: number;
 }
 
+/** This session has no subagent tool: point the writing-plans header at executing-plans only. */
+export function nativePlanHeader(markdown: string): string {
+  return markdown.split("\n").map((line) => !/REQUIRED SUB-SKILL/.test(line) ? line : line
+    .replace(/superpowers:subagent-driven-development(?: \(recommended\))? or (superpowers:executing-plans)/, "$1")
+    .replace(/superpowers:subagent-driven-development(?: \(recommended\))?/, "superpowers:executing-plans"),
+  ).join("\n");
+}
+
 export function freezePlanCommands(markdown: string): FrozenPlan {
   let serverStarts = 0;
   const freeze = (command: string, servers: boolean): string => {
@@ -100,7 +108,7 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
     const corrected: string[] = [];
     let serverStarts = 0;
     for (const [path, content] of changed) {
-      const frozen = freezePlanCommands(content);
+      const frozen = freezePlanCommands(nativePlanHeader(content));
       if (frozen.markdown === content) continue;
       writeFileSync(path, frozen.markdown);
       corrected.push(relative(ctx.cwd, path));

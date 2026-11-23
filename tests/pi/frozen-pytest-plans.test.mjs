@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { freezePlanCommands } from "../../pi-extensions/frozen-pytest-plans.ts";
+import { freezePlanCommands, nativePlanHeader } from "../../pi-extensions/frozen-pytest-plans.ts";
 
 const SUITE = "uv run --frozen python -m pytest tests";
 const lines = (...parts) => parts.join("\n");
@@ -72,4 +72,15 @@ test("is idempotent", () => {
     const once = freezePlanCommands(plan);
     assert.deepEqual(freezePlanCommands(once.markdown), { markdown: once.markdown, serverStarts: 0 });
   }
+});
+
+test("points the plan header at executing-plans only", () => {
+  const header = "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) " +
+    "or superpowers:executing-plans to implement this plan task-by-task.";
+  const native = "> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.";
+  assert.equal(nativePlanHeader(header), native);
+  assert.equal(nativePlanHeader(native), native);
+  assert.equal(nativePlanHeader("- **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development"),
+    "- **REQUIRED SUB-SKILL:** Use superpowers:executing-plans");
+  assert.equal(nativePlanHeader("Mentions subagent-driven-development in prose."), "Mentions subagent-driven-development in prose.");
 });

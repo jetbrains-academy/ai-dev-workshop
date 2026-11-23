@@ -52,11 +52,15 @@ function freeze(value) {
   return value;
 }
 
-test("hides only the bootstrap skill from automatic selection without changing the registry", async () => {
+test("hides the bootstrap and the skills this session cannot use from automatic selection without changing the registry", async () => {
   const skills = freeze([
     { name: "using-superpowers", description: "Use before any response", disableModelInvocation: false },
     { name: "systematic-debugging", description: "Diagnose bugs", disableModelInvocation: false },
     { name: "brainstorming", description: "Design features", disableModelInvocation: false },
+    { name: "subagent-driven-development", description: "Dispatch subagents", disableModelInvocation: false },
+    { name: "dispatching-parallel-agents", description: "Parallel agents", disableModelInvocation: false },
+    { name: "using-git-worktrees", description: "Isolate work", disableModelInvocation: false },
+    { name: "finishing-a-development-branch", description: "Merge or PR", disableModelInvocation: false },
     { name: "private-skill", description: "Explicit only", disableModelInvocation: true },
   ]);
   const event = { systemPromptOptions: { skills, promptGuidelines: ["Preserve this guideline"] } };

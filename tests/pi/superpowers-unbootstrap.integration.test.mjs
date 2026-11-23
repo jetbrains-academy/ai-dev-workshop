@@ -17,6 +17,8 @@ const cwd = path.join(sandbox, "project");
 const agentDir = path.join(sandbox, "agent");
 await mkdir(cwd);
 await mkdir(agentDir);
+const HIDDEN = new Set(["using-superpowers", "subagent-driven-development", "dispatching-parallel-agents",
+  "using-git-worktrees", "finishing-a-development-branch"]);
 const registry = sdk.loadSkillsFromDir({ dir: path.join(process.env.SUPERPOWERS_DIR, "skills"), source: "user" }).skills;
 assert.ok(registry.some(s => s.name === "using-superpowers"));
 
@@ -62,7 +64,7 @@ for (const paths of [[local, upstream], [upstream, local]]) {
     assert.match(catalog, /<name>systematic-debugging<\/name>/);
     assert.match(catalog, /<name>brainstorming<\/name>/);
     assert.deepEqual(before.systemPromptOptions.skills.filter(s => !s.disableModelInvocation).map(s => s.name),
-      registry.filter(s => !s.disableModelInvocation && s.name !== "using-superpowers").map(s => s.name));
+      registry.filter(s => !s.disableModelInvocation && !HIDDEN.has(s.name)).map(s => s.name));
     assert.equal(registry.find(s => s.name === "using-superpowers").disableModelInvocation, false);
 
     assert.deepEqual(await runner.emitContext(messages), messages);

@@ -15,8 +15,12 @@ initial requests and again after compaction, until `agent_end`.
 automatic selection of task-specific skills, such as debugging and
 brainstorming, without a Superpowers fork. It uses two Pi handlers:
 
-- `before_agent_start` hides only `using-superpowers` from the automatic skill
+- `before_agent_start` hides `using-superpowers` from the automatic skill
   catalog, preventing the model from immediately reloading those instructions.
+  It also hides the skills this session cannot use: `subagent-driven-development`
+  and `dispatching-parallel-agents` (no subagent tool), `using-git-worktrees`, and
+  `finishing-a-development-branch` (the finish prompt is scripted). In the
+  2026-11-23 trial Mellum read them anyway, about 5,000 tokens per run.
   The skill registry and optional `/skill:...` commands remain available. It
   also adds one prompt guideline in place of the bootstrap's “Pi tool mapping”
   note: read a skill's `SKILL.md`, use the listed tools, and do a plan's tasks
@@ -67,7 +71,10 @@ server start, as the live-server guard recognises it, becomes
 `uv run --frozen python -m pytest tests`, unless the words just before it forbid
 it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
 Python code blocks stay as written.
-The tool result reports each correction. In 7 of 17 saved plans Mellum wrote a
+It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
+alone, because the `subagent-driven-development` skill it recommends is about
+7,000 tokens and this session has no subagent tool. The tool result reports each
+correction. In 7 of 17 saved plans Mellum wrote a
 server step or a bare `python` command, and in 3 of those it started that server
 during execution.
 
