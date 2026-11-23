@@ -3,7 +3,6 @@
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
-    "../pi-extensions/fastapi-plan-note.ts",
     "../pi-extensions/phase4-plan-approval.ts",
     "../pi-extensions/keep-branch.ts"
   ],
