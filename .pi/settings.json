@@ -15,5 +15,6 @@
     "../pi-extensions/phase4-plan-approval.ts",
     "../pi-extensions/keep-branch.ts"
   ],
-  "defaultTools": ["+find", "+grep"]
+  "defaultTools": ["+find", "+grep"],
+  "compaction": { "keepRecentTokens": 8000 }
 }

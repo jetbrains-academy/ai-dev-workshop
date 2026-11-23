@@ -59,7 +59,8 @@ saved plans point at `executing-plans`.
     "../pi-extensions/phase4-plan-approval.ts",
     "../pi-extensions/keep-branch.ts"
   ],
-  "defaultTools": ["+find", "+grep"]
+  "defaultTools": ["+find", "+grep"],
+  "compaction": { "keepRecentTokens": 8000 }
 }
 ```
 
@@ -69,6 +70,12 @@ for shared project files; ignore individual machine-local files if needed.
 Pi must trust the project to load local settings. Start a fresh session after
 changing extensions so it starts with the current skill instructions. To restore
 the automatic Superpowers bootstrap, remove its filter from `.pi/settings.json`.
+
+`compaction.keepRecentTokens` keeps 8,000 recent tokens after a compaction
+instead of Pi's default 20,000, merging with the user's own compaction settings.
+In a 6-versus-6 Phase 4 trial on 2026-11-23 it cut median execution from 580 s
+to 229 s (compactions 15 to 6, with fewer re-reads and failed edits) and failed
+one run in each arm.
 
 `defaultTools` enables Pi's built-in `find` and `grep` tools, which honour
 `.gitignore` and so cannot walk `.venv`. In one rehearsal a shell `find .` walked
