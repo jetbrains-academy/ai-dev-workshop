@@ -12,7 +12,7 @@ the [workshop at AI Dev NYC 2026](https://ai-dev.deeplearning.ai/agenda/advanced
 During the workshop, we'll use the following tools, which you'll also need to set up / get ready to use if you want to try this yourself.
 - PyCharm
 - Codex integration
-- Junie Lite integration (optional)
+- Junie Lite integration
 - LM Studio
 - Pi coding agent + IDE integration
 
@@ -23,7 +23,7 @@ To read more about setup process follow [this](./setup.md) guide.
   <img src="images/check1.png" alt="Repo opened in PyCharm" width="500">
 - #### ☑️ Codex in Air reports you Superpowers skill is accessible  
   <img src="images/check2.png" alt="Codex reports that it has access to Superpowers" width="500">
-- #### ☑️ Junie Lite in Air reports you Superpowers skill is accessible (optional)  
+- #### ☑️ Junie Lite in Air reports you Superpowers skill is accessible
   <img src="images/check3.png" alt="Junie reports that it has access to Superpowers" width="500">
 - #### ☑️ LM Studio allow you ask Mellum model in the chat  
   <img src="images/check4.png" alt="LM Studio chat with Mellum" width="500">

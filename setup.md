@@ -12,7 +12,7 @@
 - Install the [Superpowers](https://github.com/obra/superpowers) skill:
   - For this workshop, it is easier to install it locally for this project using the following prompt: `Install Superpowers skill locally for this project`. This installs the skill in the `.agents/skills` directory, so other agents can use it as well.
 
-## Junie Lite (optional)
+## Junie Lite
 
 - [Junie Lite](https://junie.jetbrains.com/docs/junie-lite.html) is available in the IDE out of the box (currently free)
 - Requires a [JetBrains Account](https://account.jetbrains.com/)
