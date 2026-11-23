@@ -7,10 +7,14 @@ const PLANS = "docs/superpowers/plans";
 const ENTRY = "workshop-phase4-plan-approval";
 const APPROVAL = "The plan looks good. Proceed with native execution.";
 const READ_TOOLS = new Set(["read", "ls", "find", "grep"]);
-const REFUSAL = {
-  block: true,
-  reason: "Phase 4 approval guard: only repo inspection and design or plan Markdown edits are allowed before plan approval. Save the current artifact, present it for review, and stop.",
-};
+const LOCKED = "Phase 4 approval guard: code edits and commands stay locked until the user approves the plan. " +
+  "Only the user's approval unlocks them; editing design or plan files does not.";
+const DESIGN_ONLY = LOCKED + " This turn only saves the design under docs/superpowers/specs/. " +
+  "Save it, reply with a short summary, and end your turn.";
+const planOnly = (skill: string | undefined) => LOCKED + " This turn only writes the plan. Read the writing-plans skill" +
+  (skill ? ` at ${skill}` : "") + ", save the plan under docs/superpowers/plans/, reply with a short summary, and end your turn.";
+const planSaved = (path: string) => `Phase 4 approval guard: your plan is saved at ${path}. ` +
+  "Code edits stay locked until the user approves it, so this turn ends here.";
 
 type Phase4State = { status: "design" | "approved" } | { status: "planning"; previousPlans: Record<string, string> };
 
@@ -80,6 +84,11 @@ function readOnlyShell(command: unknown): boolean {
 }
 
 export default function phase4PlanApproval(pi: ExtensionAPI) {
+  let writingPlans: string | undefined;
+  pi.on("before_agent_start", (event) => {
+    writingPlans = event.systemPromptOptions.skills.find((skill) => skill.name === "writing-plans")?.filePath ?? writingPlans;
+  });
+
   pi.on("input", (event, ctx) => {
     if (event.source !== "interactive" && event.source !== "rpc") return;
     const text = event.text.trim().replace(/^\/skill:(?:brainstorming|writing-plans|executing-plans)\s+/, "");
@@ -108,6 +117,10 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     if (!state || state.status === "approved" || READ_TOOLS.has(event.toolName)) return;
     if ((event.toolName === "write" || event.toolName === "edit") && artifactPath(ctx.cwd, event.input.path)) return;
     if (event.toolName === "bash" && readOnlyShell(event.input.command)) return;
-    return REFUSAL;
+    if (state.status === "design") return { block: true, reason: DESIGN_ONLY };
+    // Once a new plan exists, a turn that keeps reaching for code is looping: end it.
+    const saved = Object.entries(savedPlans(ctx.cwd)).find(([path, hash]) => hash !== state.previousPlans[path]);
+    if (saved) return { block: true, reason: planSaved(saved[0]), terminate: true };
+    return { block: true, reason: planOnly(writingPlans) };
   });
 }

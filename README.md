@@ -91,6 +91,8 @@ The plan looks good. Proceed with native execution.
 
 If Pi skips a skill, use `/skill:writing-plans` or `/skill:executing-plans`
 with the corresponding prompt. If it sends an empty reply, send `Continue.`
+If planning stops right after Pi saves its plan, review the plan and send the
+approval prompt.
 
 After execution, send the finish prompt. Pi runs the test suite and the
 [Phase 4 grader](tests/phase4_acceptance.py) using the

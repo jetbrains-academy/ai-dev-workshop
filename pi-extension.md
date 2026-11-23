@@ -84,6 +84,15 @@ enable implementation, wait for Pi to save a new or revised plan and stop,
 then send the approval prompt from the [README](README.md#phase-4-pi--mellum--superpowers).
 The guard records approval in the Pi session branch.
 
+Its refusals depend on the stage. While brainstorming, it says the turn only
+saves the design. While planning with no new plan yet, it names the
+`writing-plans` skill's path and says to save the plan and end the turn. Both
+say that only the user's approval unlocks code, because looping models tried
+to unlock the guard by editing design files. Once a new plan is saved, a
+refused call also sets `terminate`, so Pi ends the turn instead of letting the
+model keep trying. In the 2026-11-23 trial, two of 16 planning turns looped
+against the old refusal (42 and 75 refusals), and one hit the 20-minute limit.
+
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
 Pi can still inspect Git status and create commits on its current branch.
