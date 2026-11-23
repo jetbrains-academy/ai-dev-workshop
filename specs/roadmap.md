@@ -100,3 +100,18 @@ project layout are in this folder.
 - Either route answers 404 for an id no complaint has.
 - Resolving or reopening never changes the board's order.
 - Phases 1 to 3 still pass.
+
+### Phase 4 verification and finish
+
+Run both commands separately before finishing Phase 4 or marking it done.
+
+```sh
+uv run --frozen python -m pytest tests
+uv run --frozen python -m pytest -v --tb=line --disable-warnings tests/phase4_acceptance.py
+```
+
+Fix failures in the implementation or its tests, rerun both checks, and report
+the results. Keep the grader unchanged.
+
+Once both checks pass, mark Phase 4 done in this roadmap. Keep the current branch
+as-is and leave its commits on that branch.

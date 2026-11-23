@@ -93,9 +93,10 @@ If Pi skips a skill, use `/skill:writing-plans` or `/skill:executing-plans`
 with the corresponding prompt. If it sends an empty reply, send `Continue.`
 
 After execution, send the finish prompt. Pi runs the test suite and the
-[Phase 4 grader](tests/phase4_acceptance.py) with the exact commands in
-[AGENTS.md](AGENTS.md). Pi marks Phase 4 done when both checks pass. If a check
-fails, fix the reported failure and send the same finish prompt again.
+[Phase 4 grader](tests/phase4_acceptance.py) using the
+[exact commands in the roadmap](specs/roadmap.md#phase-4-verification-and-finish).
+Pi marks Phase 4 done when both checks pass. If a check fails, fix the reported
+failure and send the same finish prompt again.
 
 ```
 Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.

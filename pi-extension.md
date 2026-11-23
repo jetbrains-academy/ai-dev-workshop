@@ -33,20 +33,9 @@ There is no skill-read gate or separate routing classifier.
 ### Activate or roll back
 
 The project configuration in `.pi/settings.json` uses portable relative paths.
-The package filter disables locally installed `pi-subagents` resources for this
-checkout so Superpowers can run reviews inline.
 
 ```json
 {
-  "packages": [
-    {
-      "source": "https://github.com/nicobailon/pi-subagents",
-      "autoload": false,
-      "extensions": ["!**"],
-      "skills": ["!**"],
-      "prompts": ["!**"]
-    }
-  ],
   "extensions": [
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",
@@ -90,7 +79,8 @@ The guard records approval in the Pi session branch.
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
 Pi can still inspect Git status and create commits on its current branch.
 The guard also checks model-initiated edits that mark Phase 4 done. Both exact
-commands in [`AGENTS.md`](AGENTS.md) must have passed on the current implementation.
+commands in the [Phase 4 roadmap](specs/roadmap.md#phase-4-verification-and-finish)
+must have passed on the current implementation.
 If the guard refuses the edit, its response lists the two commands.
 
 When you send the README’s finish prompt, the extension runs both commands
