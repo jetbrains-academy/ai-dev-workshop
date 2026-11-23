@@ -30,6 +30,7 @@
 
 - Install [Pi](https://pi.dev/) on your machine
 - Install the Pi ACP [IDE integration](https://www.jetbrains.com/help/air/air-in-ides-manage-agents.html)
+- You may need to open Pi in Terminal and approve **Trust** for this project folder 
 - Add your LM Studio provider to `~/.pi/agent/models.json`, for example:
   ```json
   {
