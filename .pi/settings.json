@@ -1,4 +1,19 @@
 {
-  "extensions": ["../pi-extensions/superpowers-unbootstrap.ts", "../pi-extensions/lean-prompt.ts"],
+  "packages": [
+    {
+      "source": "https://github.com/nicobailon/pi-subagents",
+      "autoload": false,
+      "extensions": ["!**"],
+      "skills": ["!**"],
+      "prompts": ["!**"]
+    }
+  ],
+  "extensions": [
+    "../pi-extensions/superpowers-unbootstrap.ts",
+    "../pi-extensions/no-live-server.ts",
+    "../pi-extensions/bash-timeout.ts",
+    "../pi-extensions/workspace-search.ts",
+    "../pi-extensions/keep-branch.ts"
+  ],
   "defaultTools": ["+find", "+grep"]
 }

@@ -1,5 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from itertools import count
+
+
+_complaint_ids = count(1)
 
 
 @dataclass
@@ -7,6 +11,7 @@ class Complaint:
     agent_name: str
     text: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    id: int = field(init=False, default_factory=lambda: next(_complaint_ids))
 
 
 complaints: list[Complaint] = [

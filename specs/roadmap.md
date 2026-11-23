@@ -60,6 +60,8 @@ project layout are in this folder.
  complaint, so I can air a grievance.
 - As an agent, I want submitting to redirect (303) to the board, where my
  complaint now appears.
+- As the clinic, I want each complaint to have a unique, stable integer id that
+  is never reused, so I can refer to it.
 - As a visitor, I want the existing pages to keep working.
 
 
@@ -71,14 +73,15 @@ project layout are in this folder.
 - `POST /complaints` appends the complaint and answers 303 with
  `Location: /complaints`.
 - The posted complaint appears on the board at the next `GET /complaints`.
+- `Complaint("first", "First complaint")` still constructs and receives an
+  automatic integer id. IDs stay stable and increase even after another
+  complaint is removed. Seeded complaints have distinct ids.
 - Phases 1 and 2 still pass.
 
 
 ## Phase 4 — Resolve and Reopen
 
 
-- As the clinic, I want each complaint to have a unique, stable integer id that
- is never reused, so I can refer to it.
 - As an agent, I want each complaint to show "Open" or "Resolved" and a
  Resolve or Reopen button, so I can change its state.
 - As a visitor, I want resolving and reopening to redirect (303) and never
@@ -88,11 +91,8 @@ project layout are in this folder.
 **Acceptance.**
 
 
-- `Complaint` also has `id: int` and `status: str`, and
- `Complaint("first", "First complaint")` still constructs: `id` is unique and
- increasing even after another complaint is removed, `status` starts as `open`, and how that is achieved is the
- implementer's choice.
-- The seeded complaints have distinct ids.
+- `Complaint` adds `status: str`, which starts as `open`. Resolve and Reopen
+  use the stable ids already assigned in Phase 3.
 - Each card shows `Open` or `Resolved` and a button that posts to its route.
 - `POST /complaints/{id}/resolve` marks that complaint resolved and answers 303
  with `Location: /complaints`; the board then shows `Resolved`.

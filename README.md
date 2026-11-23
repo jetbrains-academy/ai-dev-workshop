@@ -64,24 +64,47 @@ Use Superpowers to finish the development branch, then mark Phase 3 in the roadm
 ```
 
 ### Phase 4 (Pi + Mellum + Superpowers)
+
+Start a fresh Pi session in Air, trust the project settings if prompted, and
+select Mellum through LM Studio. Use the [60K context setting](setup.md#lm-studio).
+
 ```
 Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.
 ```
-Mellum will ask whether to skip its questions. Skip them:
+
+If Pi asks brainstorming questions, reply with this.
+
 ```
 Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Save the design and present it for approval. Do not change code yet.
 ```
+
+After approving the design, send the planning prompt.
+
 ```
-The Phase 4 design looks good. Use Superpowers to write a test-first plan under docs/superpowers/plans/: three tasks, each with its tests and the pytest commands to run; use uv to run pytest.
+The Phase 4 design looks good. Please proceed with implementation planning.
 ```
+
 ```
-The plan looks good. Execute it inline with native tools, one task at a time: add the task's tests, see them fail, make them pass, then run the full suite and report.
+The plan looks good. Proceed with native execution.
 ```
+
+If Pi skips a skill, use `/skill:writing-plans` or `/skill:executing-plans`
+with the corresponding prompt. If it sends an empty reply, send `Continue.`
+
+During execution, Pi runs the test suite and the [Phase 4 grader](tests/phase4_acceptance.py)
+required by [AGENTS.md](AGENTS.md). Pi fixes failures and reports both results
+before finishing. If it skips verification, send “Run the Phase 4 verification
+checks from AGENTS.md, fix any failures, and report the results.”
+
+Once Pi reports both checks passing, finish the phase.
+
 ```
-Use Superpowers to finish the development branch, then mark Phase 4 in the roadmap as done.
+Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.
 ```
-If Mellum replies with nothing, send `Continue.`
-If Mellum stops after one task, continue with `Task 1 is done. Now do Task 2 the same way.`
+
+For a rehearsal, aim for 15 minutes and record any extra steering. After
+finishing, check that the implementation commits are still present and confirm
+Phase 4 is marked done.
 
 ## Links
 - [Slides](https://docs.google.com/presentation/d/e/2PACX-1vSxY7nTT7oZjhovtbsiWKnhvTxcHDCvtyddrrFwDqpvDAto1MxBFTkWPCpP57eqIs_BMHgtA-exAkpK/pub?start=false&loop=false&delayms=3000)

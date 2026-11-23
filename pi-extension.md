@@ -1,5 +1,8 @@
 # Local Pi extensions
 
+Phase 4 uses Superpowers with the automatic bootstrap filter, live-server
+guard, shell timeout, workspace search guard, and branch guard.
+
 ## Superpowers skill over-triggering
 
 Ordinary requests can trigger unnecessary Superpowers workflows. Its Pi
@@ -28,12 +31,28 @@ There is no skill-read gate or separate routing classifier.
 
 ### Activate or roll back
 
-The repository tracks `.pi/settings.json` alongside the extensions so every
-checkout receives the same project configuration, using portable relative paths:
+The project configuration in `.pi/settings.json` uses portable relative paths.
+The package filter disables locally installed `pi-subagents` resources for this
+checkout so Superpowers can run reviews inline.
 
 ```json
 {
-  "extensions": ["../pi-extensions/superpowers-unbootstrap.ts", "../pi-extensions/lean-prompt.ts"],
+  "packages": [
+    {
+      "source": "https://github.com/nicobailon/pi-subagents",
+      "autoload": false,
+      "extensions": ["!**"],
+      "skills": ["!**"],
+      "prompts": ["!**"]
+    }
+  ],
+  "extensions": [
+    "../pi-extensions/superpowers-unbootstrap.ts",
+    "../pi-extensions/no-live-server.ts",
+    "../pi-extensions/bash-timeout.ts",
+    "../pi-extensions/workspace-search.ts",
+    "../pi-extensions/keep-branch.ts"
+  ],
   "defaultTools": ["+find", "+grep"]
 }
 ```
@@ -42,9 +61,17 @@ Personal provider/model settings belong in `~/.pi/agent/`. Keep `.pi/` available
 for shared project files; ignore individual machine-local files if needed.
 
 Pi must trust the project to load local settings. Start a fresh session after
-activation: `/reload` loads the extension but does not erase previously loaded
-skill instructions. Remove the entry and reload to roll back. For a one-off
-trial, use `pi -e ./pi-extensions/superpowers-unbootstrap.ts`.
+changing extensions so it starts with the current skill instructions. To restore
+the automatic Superpowers bootstrap, remove its filter from `.pi/settings.json`.
+
+[`workspace-search.ts`](pi-extensions/workspace-search.ts) checks the search root
+for Pi's built-in `find` and `grep` tools. It allows paths that resolve within the
+workspace and blocks paths that point outside it, including through a symlink.
+Shell commands through `bash` use the separate shell guards.
+
+[`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
+push, branch switch, and branch deletion commands through Pi’s `bash` tool.
+Pi can still inspect Git status and create commits on its current branch.
 
 ### Verification
 
@@ -151,7 +178,52 @@ never trimmed, because Superpowers skills are 10,000 to 20,000 characters.
 `.pi/settings.json` also enables Pi's built-in `find` and `grep` tools, which
 honour `.gitignore` and so cannot walk `.venv`.
 
-Nothing here blocks or rewrites a tool call. Remove the extension's entry from
+Nothing in this extension blocks or rewrites a tool call. Remove its entry from
 `.pi/settings.json` to get the full catalog, tool set and untrimmed results back.
+
+## A time limit for shell commands
+
+Pi's `bash` tool has no default timeout. In the fourth Phase 4 rehearsal one of
+Mellum's own tests expected a 303 and saw 200, because `TestClient` follows
+redirects unless told otherwise. Instead of fixing the test it started the app
+to look, in four spellings (`uvicorn app:app --reload`, `python -m uvicorn`,
+`.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000`, `python app.py`). Each
+foreground start held the turn until it was killed by hand. The `AGENTS.md` rule
+against starting a server was in the prompt and did not stop it.
+
+[`bash-timeout.ts`](pi-extensions/bash-timeout.ts) uses `tool_call` to give a
+`bash` call that has no timeout 60 seconds, and to cap a longer one at 120.
+Pi then kills the command's process tree and reports `Command timed out`; a
+`tool_result` handler adds a note that a server never returns and the tests are
+the way to check the app. Nothing in the workshop flow runs for more than a few
+seconds.
+
+The limit bounds the effect instead of recognising the command, so it holds for
+any spelling. It does not block a call, and it does not stop a server started in
+the background with `&`: that returns at once and keeps its port until killed.
+
+## No live server
+
+In the sixth rehearsal, with the time limit in place, Mellum ran
+`uv run uvicorn app:app --port 8000 & echo $!` and then
+`curl -X POST http://localhost:8000/complaints/2/resolve`. Nothing hung, so the
+limit never fired, and the server kept port 8000 after the turn ended.
+
+[`no-live-server.ts`](pi-extensions/no-live-server.ts) uses `tool_call` to block
+a `bash` call that starts the app as a server, in the foreground or the
+background, or that sends a request to a loopback address. The refusal tells
+the model to call the route with `TestClient` and `follow_redirects=False`,
+which is what it was missing when it reached for a server. It is adapted from
+the live-server guard in mellum-worker.
+
+The guard reads the command word of each shell segment (after `&&`, `;`, `|`,
+`&`, wrappers such as `nohup` and `uv run`, and any directory prefix), so
+`.venv/bin/uvicorn app:app` and `echo hi && python app.py` are starts, while
+`pip show uvicorn`, `python -c "import uvicorn"` and `git add app.py` are not.
+Replayed over the 332 shell commands recorded in the rehearsals it blocks the
+five server starts and the one `curl`, and nothing else.
+
+It recognises commands by their spelling, so a new spelling can get past it.
+The time limit is the backstop for a start that hangs.
 
 Reference: [Pi extension events](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md).
