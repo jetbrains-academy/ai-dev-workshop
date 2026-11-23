@@ -1,22 +1,42 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { liveServerUse } from "./no-live-server.ts";
 
 const PLANS = "docs/superpowers/plans";
 const FROZEN = "uv run --frozen python -m pytest";
+export const FROZEN_PYTHON = "uv run --frozen python";
+export const TEST_SUITE = FROZEN + " tests";
 const PYTEST = /^(?:uv[ \t]+run[ \t]+)?(?:python(?:3(?:\.\d+)?)?[ \t]+-m[ \t]+)?pytest(?=$|[ \t])/;
+const PYTHON = /^(?:uv[ \t]+run[ \t]+)?python(?:3(?:\.\d+)?)?(?=$|[ \t])/;
 const SHELL_FENCE = /^(?:bash|sh|shell|zsh|console)?$/i;
+// A plan line that forbids a command keeps it: "Never run `python app.py`".
+const PROHIBITION = /\b(?:never|not|don't|avoid|instead of|without)\b/i;
 
-export function freezePlanCommands(markdown: string): string {
+export interface FrozenPlan {
+  markdown: string;
+  serverStarts: number;
+}
+
+export function freezePlanCommands(markdown: string): FrozenPlan {
+  let serverStarts = 0;
+  const freeze = (command: string, servers: boolean): string => {
+    if (servers && liveServerUse(command) === "server") {
+      serverStarts += 1;
+      return TEST_SUITE;
+    }
+    return command.replace(PYTEST, FROZEN).replace(PYTHON, FROZEN_PYTHON);
+  };
+
   let fence = "";
   let shell = false;
-  return markdown.split("\n").map((line) => {
+  const frozen = markdown.split("\n").map((line) => {
     const marker = line.match(/^\s*(`{3,}|~{3,})[ \t]*(\S*)/);
     if (fence) {
       if (marker && marker[1].startsWith(fence) && !marker[2]) fence = "";
       else if (shell) {
         return line.replace(/^(\s*(?:\$[ \t]+)?)(.*)/, (_, prefix, command) =>
-          prefix + command.replace(PYTEST, FROZEN));
+          prefix + (command.trim() ? freeze(command, true) : command));
       }
       return line;
     }
@@ -28,10 +48,14 @@ export function freezePlanCommands(markdown: string): string {
 
     const commandLabel = /^\s*(?:[-*+]\s+)?(?:\*\*)?(?:run|command):(?:\*\*)?[ \t]*/i;
     const label = line.match(commandLabel);
-    if (label) line = label[0] + line.slice(label[0].length).replace(PYTEST, FROZEN);
+    const servers = Boolean(label) || !PROHIBITION.test(line);
+    if (label && !line.slice(label[0].length).startsWith("`")) {
+      line = label[0] + freeze(line.slice(label[0].length), true);
+    }
     return line.replace(/(`+)([^`\r\n]+)\1/g, (span, quote, command) =>
-      command === "pytest" && !label ? span : quote + command.replace(PYTEST, FROZEN) + quote);
+      !label && !/\s/.test(command.trim()) ? span : quote + freeze(command, servers) + quote);
   }).join("\n");
+  return { markdown: frozen, serverStarts };
 }
 
 function plansIn(cwd: string): Map<string, string> {
@@ -70,17 +94,21 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
       changed = content === undefined ? [] : [[target, content]];
     }
     const corrected: string[] = [];
+    let serverStarts = 0;
     for (const [path, content] of changed) {
       const frozen = freezePlanCommands(content);
-      if (frozen === content) continue;
-      writeFileSync(path, frozen);
+      if (frozen.markdown === content) continue;
+      writeFileSync(path, frozen.markdown);
       corrected.push(relative(ctx.cwd, path));
+      serverStarts += frozen.serverStarts;
     }
-    if (corrected.length) return {
-      content: [...event.content, {
-        type: "text",
-        text: `Applied the project's frozen pytest command in ${corrected.join(", ")}. The saved plan uses \`${FROZEN}\`.`,
-      }],
-    };
+    if (!corrected.length) return;
+    let text = `Applied the project's frozen pytest and Python commands in ${corrected.join(", ")}. ` +
+      `The saved plan uses \`${FROZEN_PYTHON}\`.`;
+    if (serverStarts) {
+      text += ` Replaced ${serverStarts} server start${serverStarts === 1 ? "" : "s"} with \`${TEST_SUITE}\`: ` +
+        "check routes in process with `TestClient(app)` and `follow_redirects=False`, not a live server.";
+    }
+    return { content: [...event.content, { type: "text", text }] };
   });
 }

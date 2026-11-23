@@ -33,7 +33,8 @@ test("Pi saves frozen pytest commands before returning a plan write or edit", as
     "Run: `pytest tests/test_resolve.py -v`",
     "- Run `pytest tests/test_reopen.py -v`",
     "Run: python -m pytest tests/test_board.py",
-    "Use the `pytest` fixture API.", "",
+    "Use the `pytest` fixture API.",
+    "Run: `uv run python app.py` and visit /complaints", "",
     "```bash", "$ pytest tests::test_resolve", "uv run pytest tests/test_board.py", frozen + " tests", "```", "",
     "```python", "import pytest", 'command = "pytest tests"', "```", "",
   ].join("\n");
@@ -42,11 +43,13 @@ test("Pi saves frozen pytest commands before returning a plan write or edit", as
     .replace("`pytest tests/test_reopen.py", "`" + frozen + " tests/test_reopen.py")
     .replace("Run: python -m pytest", "Run: " + frozen)
     .replace("$ pytest", "$ " + frozen)
-    .replace("uv run pytest", frozen);
+    .replace("uv run pytest", frozen)
+    .replace("`uv run python app.py`", "`" + frozen + " tests`");
 
   const write = await run("write", { path: plan, content: draft });
   assert.equal(await readFile(path.join(cwd, plan), "utf8"), expected);
-  assert.match(write.content.at(-1).text, /frozen pytest/i);
+  assert.match(write.content.at(-1).text, /frozen pytest and Python/);
+  assert.match(write.content.at(-1).text, /Replaced 1 server start with/);
   await run("edit", { path: path.join(cwd, plan), edits: [
     { oldText: "Run: `" + frozen + " tests/test_resolve.py -v`", newText: "Run: `pytest -q`" },
   ] });

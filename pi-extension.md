@@ -58,10 +58,17 @@ the automatic Superpowers bootstrap, remove its filter from `.pi/settings.json`.
 `.gitignore` and so cannot walk `.venv`. In one rehearsal a shell `find .` walked
 `.venv`, returned about 21,000 tokens and forced a compaction.
 
-[`frozen-pytest-plans.ts`](pi-extensions/frozen-pytest-plans.ts) rewrites bare
-pytest commands in Markdown plans saved under `docs/superpowers/plans/`.
-It preserves test arguments and reports the correction in Pi's tool result so
-the saved plan can be reviewed with the project's frozen uv commands.
+[`frozen-pytest-plans.ts`](pi-extensions/frozen-pytest-plans.ts) rewrites
+commands in Markdown plans saved under `docs/superpowers/plans/`: in shell
+fences, after `Run:` or `Command:` labels, and in inline code spans. Bare pytest
+becomes `uv run --frozen python -m pytest`, and `python`, `python3` or
+`uv run python` becomes `uv run --frozen python`, keeping their arguments. A
+server start, as the live-server guard recognises it, becomes
+`uv run --frozen python -m pytest tests`, unless the line forbids it ("Never run
+`python app.py`"). Single-word code spans and Python code blocks stay as written.
+The tool result reports each correction. In 7 of 17 saved plans Mellum wrote a
+server step or a bare `python` command, and in 3 of those it started that server
+during execution.
 
 ### Phase 4 approval and finish
 
