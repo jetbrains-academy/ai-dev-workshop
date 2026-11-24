@@ -31,7 +31,65 @@ To read more about setup process follow [this](./setup.md) guide.
   <img src="images/check5.png" alt="Pi reports that it has access to Superpowers" width="500">
 
 ## Workshop flow
-*Prompts will be here*
+The demo starts with Phase 1 implemented. Each later phase uses the same four
+prompts: design, plan, implement, finish. Review the saved design and plan
+before approving them.
+
+### Phase 2 (Codex + Superpowers)
+> Codex 6.2 Sol with medium effort
+
+```
+Use Superpowers to brainstorm Phase 2 in specs/roadmap.md
+```
+```
+The Phase 2 design looks good. Please proceed with implementation planning.
+```
+```
+The plan looks good. Proceed with native execution.
+```
+```
+Use Superpowers to finish the development branch, then mark Phase 2 in the roadmap as done.
+```
+### Phase 3 (Junie Lite + Superpowers)
+```
+Use Superpowers to brainstorm Phase 3 in specs/roadmap.md
+```
+```
+The Phase 3 design looks good. Please proceed with implementation planning.
+```
+```
+The plan looks good. Proceed with native execution.
+```
+```
+Use Superpowers to finish the development branch, then mark Phase 3 in the roadmap as done.
+```
+
+### Phase 4 (Pi + Mellum + Superpowers)
+Start a fresh Pi session in Air, trust the project settings if prompted, and
+select Mellum. Remember to set the [60K context length](setup.md#lm-studio) in the LM Studio .
+
+```
+Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.
+```
+
+If Pi asks brainstorming questions, reply with this.
+
+```
+Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Save the design and present it for approval. Do not change code yet.
+```
+
+After approving the design, send the planning prompt.
+
+```
+The Phase 4 design looks good. Please proceed with implementation planning.
+```
+
+```
+The plan looks good. Proceed with native execution.
+```
+
+If Pi skips a skill, use `/skill:writing-plans` or `/skill:executing-plans`
+with the corresponding prompt. If it sends an empty reply, send `Continue.`
 
 ## Links
 - [Slides](https://docs.google.com/presentation/d/e/2PACX-1vSxY7nTT7oZjhovtbsiWKnhvTxcHDCvtyddrrFwDqpvDAto1MxBFTkWPCpP57eqIs_BMHgtA-exAkpK/pub?start=false&loop=false&delayms=3000)
