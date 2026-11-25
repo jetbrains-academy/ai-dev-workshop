@@ -385,3 +385,43 @@ test("a ledger left before approval does not count as progress", async (context)
   assert.match(run.sent[0].message.content, /Next: Task 1\b/);
   assert.deepEqual(run.errors, []);
 });
+
+test("after approval, find, grep and ls outside the project are refused with the scripts' path", async (context) => {
+  const { cwd, call, errors } = await approvedRun(context);
+  const { homedir } = await import("node:os");
+  for (const [tool, input] of [
+    ["find", { pattern: "task-done", path: homedir() }],
+    ["find", { pattern: "task-start", path: "/" }],
+    ["grep", { pattern: "task-start", path: "~" }],
+    ["ls", { path: "../.." }],
+  ]) {
+    const decision = await call(tool, input);
+    assert.equal(decision?.block, true, `${tool} ${input.path}`);
+    assert.equal(decision.terminate, undefined, "a refused search does not end the turn");
+    assert.ok(decision.reason.startsWith(`Blocked just now: your \`${tool}\` call on \`${input.path}\`.`), decision.reason);
+    assert.ok(decision.reason.includes(`${scripts}/task-start`), decision.reason);
+    assert.match(decision.reason, /outside the project on purpose/);
+    assert.match(decision.reason, /does not exist yet: create it/);
+  }
+  for (const [tool, input] of [
+    ["find", { pattern: "*.py" }],
+    ["find", { pattern: "*.py", path: "tests" }],
+    ["grep", { pattern: "status", path: path.join(cwd, "docs") }],
+    ["ls", { path: "." }],
+    ["find", { pattern: "task-done", path: path.dirname(scripts) }],
+    ["grep", { pattern: "Task", path: path.dirname(path.dirname(scripts)) }],
+    ["read", { path: path.join(path.dirname(scripts), "SKILL.md") }],
+  ]) {
+    assert.equal((await call(tool, input))?.block, undefined, `${tool} ${input.path}`);
+  }
+  assert.deepEqual(errors, []);
+});
+
+test("before approval, searches outside the project are not this rule's business", async (context) => {
+  const { say, start, call, errors } = await setup(context);
+  await say(planning);
+  await start(planning);
+  assert.equal((await call("find", { pattern: "SKILL.md", path: path.dirname(scripts) }))?.block, undefined);
+  assert.equal((await call("find", { pattern: "x", path: "/" }))?.block, undefined);
+  assert.deepEqual(errors, []);
+});

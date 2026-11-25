@@ -45,7 +45,9 @@ test("explains a timed-out command: search inside the project, scripts from the 
   assert.equal(content[0].text, text);
   assert.match(content[1].text, /30 seconds/);
   assert.match(content[1].text, /inside the project/);
-  assert.match(content[1].text, /plan note/);
+  assert.match(content[1].text, /installed outside the project on purpose/);
+  assert.match(content[1].text, /plan note is correct, run it as written/);
+  assert.match(content[1].text, /does not exist yet: create it/);
   assert.match(content[1].text, /tests/);
   assert.doesNotMatch(content[1].text, /`[^`]*\/[^`]*`/, "no path the model could copy into another search");
 });

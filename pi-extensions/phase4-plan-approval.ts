@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, realpathSync, renameSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const PLANS = "docs/superpowers/plans";
@@ -223,6 +224,43 @@ function readOnlyShell(command: unknown): boolean {
 
 const PLAN_NOTE = "workshop-phase4-plan";
 
+// After approval, Pi's own search tools stay inside the project. In headless runs on 2026-11-25,
+// searches of the home folder turned up other tools' cached copies of the Superpowers scripts,
+// reported relative to the home folder so they looked like project paths, and fed the belief
+// behind the slowest runs: that the scripts in the plan note were in the wrong place.
+const SEARCH_TOOLS = new Set(["find", "grep", "ls"]);
+
+function within(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+// The real path of the nearest part that exists, so a missing file under a symlinked folder
+// (macOS /var is /private/var) still compares equal to the project's real path.
+function realOrResolved(path: string): string {
+  const full = resolve(path);
+  try {
+    return realpathSync(full);
+  } catch {
+    const parent = dirname(full);
+    return parent === full ? full : join(realOrResolved(parent), basename(full));
+  }
+}
+
+export function outsideProject(cwd: string, path: unknown, allowed?: string): boolean {
+  if (typeof path !== "string" || path.trim() === "") return false;
+  const expanded = path === "~" || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
+  const target = realOrResolved(resolve(cwd, expanded));
+  if (within(target, realOrResolved(cwd))) return false;
+  return !(allowed && within(target, realOrResolved(allowed)));
+}
+
+export function searchInside(scripts: string): string {
+  return "While executing the plan, search inside the project. The task scripts are installed outside " +
+    `the project on purpose: run \`${scripts}/task-start\` and \`${scripts}/task-done\` as the plan note ` +
+    "writes them. A file the plan names that is not in the project does not exist yet: create it.";
+}
+
 export default function phase4PlanApproval(pi: ExtensionAPI) {
   let writingPlans: string | undefined;
   let datedStage: string | undefined;
@@ -355,6 +393,13 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
 
   pi.on("tool_call", (event, ctx) => {
     const state = stateFor(ctx);
+    if (state?.status === "approved" && SEARCH_TOOLS.has(event.toolName)) {
+      const input = event.input as Record<string, unknown>;
+      const skillsRoot = executingPlans ? dirname(dirname(executingPlans)) : undefined;
+      if (outsideProject(ctx.cwd, input.path, skillsRoot)) {
+        return { block: true, reason: `${blockedCall(event.toolName, input)} ${searchInside(scriptsDir())}` };
+      }
+    }
     if (!state || unlocked(state) || READ_TOOLS.has(event.toolName)) return;
     if ((event.toolName === "write" || event.toolName === "edit") && artifactPath(ctx.cwd, event.input.path)) return;
     if (event.toolName === "bash" && readOnlyShell(event.input.command)) return;

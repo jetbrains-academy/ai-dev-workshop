@@ -197,6 +197,17 @@ tests, which the grader guard does not cover, and on compactions of about a
 minute each. In the run that scored 8/12, Pi put the routes under `/reports/`,
 its own tests used the same paths, and every `task-done` passed.
 
+After approval the guard also keeps Pi's own `find`, `grep` and `ls` tools
+inside the project and the Superpowers skills folder. A search elsewhere, such
+as the home folder or `/`, is refused with the scripts' full path, a note that
+they are installed outside the project on purpose, and that a file the plan
+names but the project lacks does not exist yet. These tools are quick (the
+slowest call outside the project took 5.5 seconds in 16 runs), but searches of
+the home folder found other tools' cached copies of the Superpowers scripts,
+listed relative to the home folder so they looked like project paths, and fed
+the belief behind the slowest runs that the note's scripts were in the wrong
+place. Shell commands are left to the time limit.
+
 The tracking has known gaps. A shell command that chains `task-done` and
 `task-start` records only the first. Pi sometimes skips `task-start` or passes
 the wrong base, and the approval note can arrive twice. The line asking Pi to
@@ -342,15 +353,22 @@ Pi's `bash` tool has no default timeout, so a command that never returns holds
 the turn until it ends. [`bash-timeout.ts`](pi-extensions/bash-timeout.ts) uses
 `tool_call` to give every `bash` call 30 seconds at most, keeping a shorter
 limit the model chose. When a command times out, the result adds a hint: search
-inside the project, take the executing-plans scripts from the full path in the
-Phase 4 plan note, and check the app through its tests rather than a server.
+inside the project; the task scripts are installed outside it on purpose, so
+run them from the plan note's path as written; a file the plan names that is not
+in the project does not exist yet, so create it; and check the app through its
+tests rather than a server. Those last points answer the beliefs behind both
+slow searches: one run distrusted the scripts' path because it is outside the
+project, and the other looked for a test file its plan named but never created.
+Pi kills the command's whole process group, so pipes and child processes stop
+too; a command started with `nohup … &` returns at once and keeps running.
 
 A 60-second version was removed on 2026-11-23 because it never fired once the
 live-server guard was in place. It came back after the headless checks of
-2026-11-25: of 1,211 tool calls in 12 runs, only three shell commands took over
-12 seconds, all searches of the whole disk (2 to 7 minutes each), and the
-longest ordinary command took 11.5 seconds. A limit bounds any spelling of such
-a search, where a block would catch only the ones anticipated. How Mellum
-reacts to the hint has not been tried yet.
+2026-11-25: in 16 runs, 99% of shell commands took about a second and the
+slowest ordinary one (`task-done`) 1.2 seconds, while three searches of the
+whole disk took 2 to 7 minutes each. A limit bounds any spelling of such a
+search, where a block would catch only the ones anticipated. In the first 4
+runs with the limit no search left the project, so it never fired, and how
+Mellum reacts to the hint has not been tried yet.
 
 Reference: [Pi extension events](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md).
