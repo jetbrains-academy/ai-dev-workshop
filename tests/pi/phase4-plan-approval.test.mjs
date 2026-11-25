@@ -50,6 +50,8 @@ test("planNote names the plan, its tasks, the scripts and where Pi is", async ()
   assert.match(fresh, /Next: Task 1/);
   assert.match(fresh, /commit as each task's steps say/i);
   assert.match(fresh, /until task-done records/i);
+  assert.match(fresh, /from the project folder exactly as written, without cd/);
+  assert.match(fresh, /installed outside the project on purpose/);
   const mid = planNote("p.md", tasks, { started: { 2: { brief: "/b/task-2-brief.md", base: "abc1234" } }, recorded: [1] }, s);
   assert.match(mid, /Recorded: Task 1\b/);
   assert.match(mid, /Continue Task 2/);
@@ -91,11 +93,12 @@ test("planNote still names the plan and scripts when it finds no task headings",
   assert.ok(note.includes("/s/task-start docs/superpowers/plans/p.md"));
 });
 
-test("planNote lists commits since approval so finished work is recorded, not redone", async () => {
+test("planNote lists commits since approval, and finished work is checked against its brief before it is recorded", async () => {
   const { planTasks, planNote } = await import("../../pi-extensions/phase4-plan-approval.ts");
   const tasks = planTasks("### Task 1: Model\n### Task 2: Routes\n");
   const note = planNote("p.md", tasks, { started: {}, recorded: [] }, "/s", ["abc1234 feat: model"]);
   assert.match(note, /Commits since approval: abc1234 feat: model/);
-  assert.match(note, /rather than redoing it/);
+  assert.match(note, /run task-start for it, check its brief's steps against that commit, do any step that is missing, then run task-done/);
+  assert.doesNotMatch(note, /rather than redoing it/);
   assert.doesNotMatch(planNote("p.md", tasks, { started: {}, recorded: [] }, "/s", []), /Commits since approval/);
 });

@@ -92,20 +92,24 @@ test("points plan steps that change the grader at a new test file", () => {
     "- Modify: `tests/phase4_acceptance.py`",
     "- Create: tests/phase4_acceptance.py",
     "- Test: `tests/phase4_acceptance.py::test_unknown_id_returns_404`",
+    "- [ ] **Step 1: Create phase4_acceptance.py test file**",
+    "- [ ] **Step 2: Run phase4_acceptance.py to verify it passes**",
     "Run: `uv run --frozen python -m pytest tests/phase4_acceptance.py`",
     "```bash", "git add tests/phase4_acceptance.py app.py", "```",
   );
   assert.deepEqual(redirectGraderEdits(plan), {
     markdown: lines(
-      "### Task 4: Update phase4_acceptance.py tests",
+      "### Task 4: Update test_phase4.py tests",
       "**Files:**",
       "- Modify: `tests/test_phase4.py`",
       "- Create: tests/test_phase4.py",
       "- Test: `tests/phase4_acceptance.py::test_unknown_id_returns_404`",
+      "- [ ] **Step 1: Create test_phase4.py test file**",
+      "- [ ] **Step 2: Run phase4_acceptance.py to verify it passes**",
       "Run: `uv run --frozen python -m pytest tests/phase4_acceptance.py`",
       "```bash", "git add tests/test_phase4.py app.py", "```",
     ),
-    redirected: 3,
+    redirected: 5,
   });
   const once = redirectGraderEdits(plan).markdown;
   assert.deepEqual(redirectGraderEdits(once), { markdown: once, redirected: 0 });

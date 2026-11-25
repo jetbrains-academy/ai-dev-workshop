@@ -87,10 +87,16 @@ export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress
         ? `Next: Continue Task ${next.number} from its brief ${started.brief} with base ${started.base}; ` +
           "do not run task-start again for it."
         : `Next: Task ${next.number}. Start it with \`${scripts}/task-start ${plan} ${next.number}\`.`,
+    // "Record it rather than redoing it" let runs record tasks they never worked; the brief check keeps
+    // the shortcut for real finished work without inviting that.
     ...(commits.length ? [`Commits since approval: ${commits.join("; ")}. If a task's work is already committed, ` +
-      "run task-start and task-done for it to record it rather than redoing it."] : []),
+      "run task-start for it, check its brief's steps against that commit, do any step that is missing, " +
+      "then run task-done."] : []),
     `Finish each task with \`${scripts}/task-done ${plan} N BASE -- uv run --frozen python -m pytest TEST_FILES\`; ` +
       "the test command goes as separate words after --, not one quoted string.",
+    // Run from the Superpowers folder, task-start's workspace script loops forever on a sandboxed mkdir.
+    "Run the scripts from the project folder exactly as written, without cd: they are installed outside the " +
+      "project on purpose.",
     "Work the tasks in order, commit as each task's steps say, and do not move to the next task until task-done " +
       "records the current one.",
   ].join("\n");

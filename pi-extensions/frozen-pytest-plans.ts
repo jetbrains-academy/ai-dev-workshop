@@ -21,14 +21,27 @@ export interface FrozenPlan {
 const GRADER = "tests/phase4_acceptance.py";
 const OWN_TESTS = "tests/test_phase4.py";
 
+const GRADER_NAME = "phase4_acceptance.py";
+const OWN_NAME = "test_phase4.py";
+// A task or step heading that asks to change the grader by its bare name. In a 2026-11-25 run
+// "Step 1: Create phase4_acceptance.py test file" survived the Files-line rewrite, and Pi took
+// the grader as its own deliverable and tried to edit it.
+const HEADING_CHANGE = /^\s*(?:#{1,6}\s|[-*+]\s+(?:\[[ xX]\]\s+)?\*\*)[^\n]*\b(?:create|update|modify|write|edit|extend|change|add)\b/i;
+
 /** Plan steps that would create, modify or stage the grader go to the model's own test file instead. */
 export function redirectGraderEdits(markdown: string): { markdown: string; redirected: number } {
   let redirected = 0;
   const lines = markdown.split("\n").map((line) => {
     const changes = /^\s*(?:[-*+]\s+)?(?:\*\*)?(?:modify|create):/i.test(line) || /\bgit[ \t]+add\b/.test(line);
-    if (!changes || !line.includes(GRADER)) return line;
-    redirected += 1;
-    return line.replaceAll(GRADER, OWN_TESTS);
+    if (changes && line.includes(GRADER)) {
+      redirected += 1;
+      return line.replaceAll(GRADER, OWN_TESTS);
+    }
+    if (HEADING_CHANGE.test(line) && line.includes(GRADER_NAME) && !/\bpytest\b/.test(line)) {
+      redirected += 1;
+      return line.replaceAll(GRADER, OWN_TESTS).replaceAll(GRADER_NAME, OWN_NAME);
+    }
+    return line;
   });
   return { markdown: lines.join("\n"), redirected };
 }

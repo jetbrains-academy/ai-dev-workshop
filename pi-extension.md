@@ -1,8 +1,8 @@
 # Local Pi extensions
 
-Phase 4 uses Superpowers with the automatic bootstrap filter, live-server
-guard, a shell time limit, frozen pytest commands in plans, plan approval guard,
-and branch and finish guard.
+Phase 4 uses Superpowers with the automatic bootstrap filter, a filter that
+drops old thinking from requests, live-server guard, a shell time limit, frozen
+pytest commands in plans, plan approval guard, and branch and finish guard.
 
 ## Superpowers skill over-triggering
 
@@ -64,6 +64,7 @@ saved plans point at `executing-plans`.
   ],
   "extensions": [
     "../pi-extensions/superpowers-unbootstrap.ts",
+    "../pi-extensions/drop-old-thinking.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/bash-timeout.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
@@ -102,8 +103,12 @@ server start, as the live-server guard recognises it, becomes
 it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
 Python code blocks stay as written.
 Plan steps that would create, modify or `git add` the grader,
-`tests/phase4_acceptance.py`, are pointed at `tests/test_phase4.py`; steps that
-only run the grader keep it. It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
+`tests/phase4_acceptance.py`, are pointed at `tests/test_phase4.py`, and so are
+task and step headings that ask to create, update, write or add to the grader by
+its bare name ("Step 1: Create phase4_acceptance.py test file"); steps that only
+run the grader keep it. In 6 of 20 plans saved on 2026-11-25 such a heading
+survived, and in one run Pi took the grader as its own deliverable and tried to
+edit it instead of fixing its code. It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
 alone, because the `subagent-driven-development` skill it recommends is about
 7,000 tokens and this session has no subagent tool. The tool result reports each
 correction. In 7 of 17 saved plans Mellum wrote a
@@ -170,8 +175,13 @@ in as a steering message, so it reaches the next model call. After a run has
 ended it waits for the next prompt; the guard never starts a turn itself. The
 resent note says which tasks are recorded, and either which task to continue
 (with its brief and base, without another `task-start`) or which task to start
-next. It also lists the commits made since approval, so Pi records finished
-work with the scripts rather than redoing it. Ledger lines that were already
+next. It also lists the commits made since approval: for a task whose work is
+already committed, Pi runs `task-start`, checks the brief's steps against the
+commit, does any step that is missing, and then runs `task-done`. An earlier
+wording, "record it rather than redoing it", let runs record tasks they never
+worked. The note also says to run the scripts from the project folder exactly
+as written, without `cd`: run from the Superpowers folder, `task-start`'s
+workspace script cannot create its folder under the sandbox and loops forever. Ledger lines that were already
 there at approval, for example from a rehearsal earlier the same day, do not
 count. Task headings may use any level (`##`, `###`), and a plan file without
 task headings is passed over when another new plan has them. No note is sent
@@ -210,9 +220,7 @@ place. Shell commands are left to the time limit.
 
 The tracking has known gaps. A shell command that chains `task-done` and
 `task-start` records only the first. Pi sometimes skips `task-start` or passes
-the wrong base, and the approval note can arrive twice. The line asking Pi to
-record work already committed once sent a run back over finished tasks, and in
-another let Pi record tasks it had not worked.
+the wrong base, and the approval note can arrive twice.
 
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
@@ -317,6 +325,25 @@ raw input and output were logged for every request.
   POST forms).
 - **Settings:** temperature stays 1; 0.6 is a fallback if JSON errors appear.
   Context length is 60,000, so Pi compacts near 43,600 tokens.
+
+## Old thinking
+
+Mellum's chat template keeps an assistant message's reasoning only after the
+latest user message, the way Qwen3's does, so in a chat earlier thinking falls
+away with each new question. Executing a plan is one user prompt followed by 50
+to 150 tool calls, and Pi sends every step's thinking back as
+`reasoning_content`, so all of it stayed in the prompt. In 20 headless Phase 4
+runs on 2026-11-25 it was 47% of what filled the context during execution,
+which grew by about 62,000 tokens per run and compacted about twice, at about
+65 seconds a compaction.
+
+[`drop-old-thinking.ts`](pi-extensions/drop-old-thinking.ts) uses the `context`
+event to remove thinking from every assistant message but the latest, in the
+request only; the session keeps all of it. A reply that was nothing but
+thinking keeps it, so no message becomes empty. Replayed over the 4 runs of the
+search-scope check, it would have cut context growth by 28 to 45% and
+compactions from 3 to 1 in three runs, saving about 2 to 2.7 minutes each. It
+has not been tried with Mellum yet.
 
 ## No live server
 

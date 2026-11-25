@@ -10,6 +10,7 @@
   ],
   "extensions": [
     "../pi-extensions/superpowers-unbootstrap.ts",
+    "../pi-extensions/drop-old-thinking.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/bash-timeout.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
