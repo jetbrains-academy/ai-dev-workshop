@@ -135,6 +135,14 @@ earlier interaction and ignored it. A refused shell command also lists the
 read-only forms that are allowed: `ls`, `pwd`, `git status`, `date`, and plain
 `find` with relative paths, without pipes, `||`, `;`, `&`, redirection or `$(`.
 
+Superpowers names specs and plans `YYYY-MM-DD-<name>.md`, but Pi's prompt has
+no date, so Mellum guessed: on 2026-11-25 it wrote `phase-4-design.md` and
+`2026-11-10-phase-4-design.md`. The first turn of the brainstorming and
+planning stages now carries today's date. If Pi still saves a new spec or plan
+without today's date, the guard renames the file at once, and the write's
+result names the new path. Files that existed when the stage began are left
+alone, and a rename never overwrites one of them.
+
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
 Pi can still inspect Git status and create commits on its current branch.

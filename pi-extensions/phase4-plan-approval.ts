@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { lstatSync, readdirSync, readFileSync, realpathSync, renameSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const PLANS = "docs/superpowers/plans";
@@ -34,13 +34,36 @@ function refusal(toolName: string, input: Record<string, unknown>, stage: string
   return [blockedCall(toolName, input), stage, ...(toolName === "bash" ? [SHELL_ALLOWED] : [])].join(" ");
 }
 
-type Phase4State = { status: "design" | "approved" } | { status: "planning"; previousPlans: Record<string, string> };
+// Superpowers names files YYYY-MM-DD-<name>.md, but Pi's prompt has no date, so Mellum guessed:
+// `phase-4-design.md` and `2026-11-10-phase-4-design.md` on 2026-11-25.
+export function today(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
 
-function stateFor(ctx: ExtensionContext): Phase4State | undefined {
+export function datedName(filename: string, date: string): string {
+  return `${date}-${filename.replace(/^\d{4}-\d{2}-\d{2}-/, "")}`;
+}
+
+const dateNote = (date: string) => `Today is ${date}. Name new files in docs/superpowers/specs/ and ` +
+  `docs/superpowers/plans/ as ${date}-<name>.md (the YYYY-MM-DD-<name>.md the skills ask for).`;
+
+// `existing` lists the specs and plans present at the stage prompt; only files Pi makes later are renamed.
+type Stage = { existing: string[] };
+type Phase4State =
+  | ({ status: "design" } & Stage)
+  | ({ status: "planning"; previousPlans: Record<string, string> } & Stage)
+  | { status: "approved" };
+
+function stateEntry(ctx: ExtensionContext) {
   const entry = ctx.sessionManager.getBranch().findLast(
     (entry) => entry.type === "custom" && entry.customType === ENTRY,
   );
-  if (entry?.type === "custom") return entry.data as Phase4State;
+  if (entry?.type === "custom") return entry;
+}
+
+function stateFor(ctx: ExtensionContext): Phase4State | undefined {
+  return stateEntry(ctx)?.data as Phase4State | undefined;
 }
 
 function statIfPresent(path: string) {
@@ -85,6 +108,17 @@ function savedPlans(cwd: string): Record<string, string> {
   }));
 }
 
+function existingArtifacts(cwd: string): string[] {
+  const workspace = realpathSync(cwd);
+  return ["specs", "plans"].flatMap((kind) => {
+    const directory = join(workspace, "docs/superpowers", kind);
+    if (!statIfPresent(directory)) return [];
+    return readdirSync(directory, { withFileTypes: true, recursive: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => relative(workspace, join(entry.parentPath, entry.name)));
+  });
+}
+
 // `find` actions that run or write something.
 const FIND_ACTIONS = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
 
@@ -115,19 +149,47 @@ function readOnlyShell(command: unknown): boolean {
 
 export default function phase4PlanApproval(pi: ExtensionAPI) {
   let writingPlans: string | undefined;
-  pi.on("before_agent_start", (event) => {
+  let datedStage: string | undefined;
+  pi.on("before_agent_start", (event, ctx) => {
     writingPlans = event.systemPromptOptions.skills.find((skill) => skill.name === "writing-plans")?.filePath ?? writingPlans;
+    const entry = stateEntry(ctx);
+    const state = entry?.data as Phase4State | undefined;
+    if (!entry || !state || state.status === "approved" || entry.id === datedStage) return;
+    datedStage = entry.id;
+    return { message: { customType: "workshop-phase4-date", content: dateNote(today()), display: true } };
+  });
+
+  pi.on("tool_result", (event, ctx) => {
+    const state = stateFor(ctx);
+    if (!state || state.status === "approved" || event.isError) return;
+    if (event.toolName !== "write" && event.toolName !== "edit") return;
+    const target = artifactPath(ctx.cwd, (event.input as { path?: unknown }).path);
+    if (!target || !statIfPresent(target)) return;
+    const workspace = realpathSync(ctx.cwd);
+    const from = relative(workspace, target);
+    const name = basename(target);
+    const wanted = datedName(name, today());
+    if (state.existing.includes(from) || wanted === name) return;
+    const destination = join(dirname(target), wanted);
+    const to = relative(workspace, destination);
+    const text = state.existing.includes(to)
+      ? `Left ${from} as named: ${to} already exists from before this stage.`
+      : `Renamed ${from} to ${to} to carry today's date; use ${to} from now on.`;
+    if (!state.existing.includes(to)) renameSync(target, destination);
+    return { content: [...event.content, { type: "text" as const, text }] };
   });
 
   pi.on("input", (event, ctx) => {
     if (event.source !== "interactive" && event.source !== "rpc") return;
     const text = event.text.trim().replace(/^\/skill:(?:brainstorming|writing-plans|executing-plans)\s+/, "");
     if (/\bbrainstorm\b.*\bPhase 4\b/i.test(text)) {
-      pi.appendEntry<Phase4State>(ENTRY, { status: "design" });
+      pi.appendEntry<Phase4State>(ENTRY, { status: "design", existing: existingArtifacts(ctx.cwd) });
       return;
     }
     if (/\bPhase 4\b.*\b(?:plan|planning)\b|\b(?:plan|planning)\b.*\bPhase 4\b/i.test(text)) {
-      pi.appendEntry<Phase4State>(ENTRY, { status: "planning", previousPlans: savedPlans(ctx.cwd) });
+      pi.appendEntry<Phase4State>(ENTRY, {
+        status: "planning", previousPlans: savedPlans(ctx.cwd), existing: existingArtifacts(ctx.cwd),
+      });
       return;
     }
     if (text !== APPROVAL) return;

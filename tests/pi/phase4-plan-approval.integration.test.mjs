@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -97,5 +97,83 @@ test("planning may read the date and find files, but not change anything", async
   ]) {
     assert.equal((await call("bash", { command }))?.block, true, command);
   }
+  assert.deepEqual(errors, []);
+});
+
+const settingsPath = new URL("../../.pi/settings.json", import.meta.url);
+const allExtensions = JSON.parse(await readFile(settingsPath, "utf8")).extensions
+  .map((entry) => fileURLToPath(new URL(entry, settingsPath)));
+const { today } = await import(pathToFileURL(extension).href);
+
+// Every project extension, in settings order, so chained tool_result handlers run as in Pi.
+async function setupAll(context) {
+  const cwd = await mkdtemp(path.join(tmpdir(), "pi-phase4-dates-"));
+  context.after(() => rm(cwd, { recursive: true, force: true }));
+  for (const kind of ["plans", "specs"]) await mkdir(path.join(cwd, "docs/superpowers", kind), { recursive: true });
+  const loaded = await sdk.discoverAndLoadExtensions(allExtensions, cwd, cwd);
+  assert.deepEqual(loaded.errors, []);
+  const session = sdk.SessionManager.inMemory(cwd);
+  loaded.runtime.appendEntry = (customType, data) => session.appendCustomEntry(customType, data);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, cwd, session, undefined);
+  const errors = [];
+  runner.onError((error) => errors.push(error));
+  const tools = { write: sdk.createWriteTool(cwd), edit: sdk.createEditTool(cwd) };
+  const say = (text) => runner.emitInput(text, undefined, "rpc");
+  const start = (prompt) => runner.emitBeforeAgentStart({ messageType: "user", prompt }, { cwd, skills });
+  async function run(toolName, input) {
+    const decision = await runner.emitToolCall({ type: "tool_call", toolCallId: toolName, toolName, input });
+    assert.equal(decision?.block, undefined);
+    const result = await tools[toolName].execute(toolName, input, undefined, undefined);
+    return runner.emitToolResult({ type: "tool_result", toolCallId: toolName, toolName, input, ...result, isError: false });
+  }
+  return { cwd, errors, say, start, run };
+}
+
+const exists = (file) => access(file).then(() => true, () => false);
+const texts = (result) => result.content.map((item) => item.text ?? "");
+
+test("brainstorming and planning each get today's date once", async (context) => {
+  const { errors, say, start } = await setupAll(context);
+  const dated = (result) => result.messages.filter((m) => String(m.content).includes(today()));
+  await say(brainstorm);
+  const first = dated(await start(brainstorm));
+  assert.equal(first.length, 1);
+  assert.match(first[0].content, /YYYY-MM-DD-|docs\/superpowers\/specs\//);
+  assert.equal(dated(await start("Skip the questions.")).length, 0);
+  await say(planning);
+  assert.equal(dated(await start(planning)).length, 1);
+  assert.deepEqual(errors, []);
+});
+
+test("a new plan without today's date is renamed, and rewriting the old name updates it", async (context) => {
+  const { cwd, errors, say, start, run } = await setupAll(context);
+  await writeFile(path.join(cwd, "docs/superpowers/plans/2026-11-06-old.md"), "# Old\n");
+  await say(planning);
+  await start(planning);
+  const undated = "docs/superpowers/plans/phase-4-plan.md";
+  const dated = `docs/superpowers/plans/${today()}-phase-4-plan.md`;
+  const result = await run("write", { path: undated, content: "# Plan\n\nRun: `pytest tests`\n" });
+  assert.equal(await exists(path.join(cwd, undated)), false);
+  assert.match(await readFile(path.join(cwd, dated), "utf8"), /uv run --frozen python -m pytest tests/);
+  assert.ok(texts(result).some((text) => /frozen pytest/.test(text)), "the plan rewrite's note is kept");
+  assert.ok(result.content.at(-1).text.includes(dated));
+  await run("write", { path: undated, content: "# Plan v2\n" });
+  assert.equal(await exists(path.join(cwd, undated)), false);
+  assert.equal(await readFile(path.join(cwd, dated), "utf8"), "# Plan v2\n");
+  await run("edit", { path: "docs/superpowers/plans/2026-11-06-old.md", edits: [{ oldText: "# Old", newText: "# Older" }] });
+  assert.equal(await exists(path.join(cwd, "docs/superpowers/plans/2026-11-06-old.md")), true);
+  assert.deepEqual(errors, []);
+});
+
+test("a misnamed spec is not renamed onto a file that predates the stage", async (context) => {
+  const { cwd, errors, say, start, run } = await setupAll(context);
+  const clash = `docs/superpowers/specs/${today()}-clash.md`;
+  await writeFile(path.join(cwd, clash), "# Earlier\n");
+  await say(brainstorm);
+  await start(brainstorm);
+  const result = await run("write", { path: "docs/superpowers/specs/clash.md", content: "# New\n" });
+  assert.equal(await readFile(path.join(cwd, clash), "utf8"), "# Earlier\n");
+  assert.equal(await exists(path.join(cwd, "docs/superpowers/specs/clash.md")), true);
+  assert.match(result.content.at(-1).text, /already exists/);
   assert.deepEqual(errors, []);
 });
