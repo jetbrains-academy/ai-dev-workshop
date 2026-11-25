@@ -30,7 +30,7 @@ test("datedName puts today's date in front, replacing a wrong one", async () => 
 
 test("planTasks reads the plan's task headings", async () => {
   const { planTasks } = await import("../../pi-extensions/phase4-plan-approval.ts");
-  assert.deepEqual(planTasks("# P\n### Task 1: Model\n...\n### Task 2: Routes\n## Task 9: not a task\n"),
+  assert.deepEqual(planTasks("# P\n### Task 1: Model\n...\n### Task 2: Routes\nTask 9: not a heading\n"),
     [{ number: 1, title: "Model" }, { number: 2, title: "Routes" }]);
 });
 
@@ -44,7 +44,8 @@ test("planNote names the plan, its tasks, the scripts and where Pi is", async ()
   assert.match(fresh, /Task 1: Model/);
   assert.match(fresh, /Task 2: Routes/);
   assert.ok(fresh.includes(`${s}/task-start ${plan} 1`));
-  assert.ok(fresh.includes(`${s}/task-done ${plan} <N> <base> -- uv run --frozen python -m pytest`));
+  assert.ok(fresh.includes(`${s}/task-done ${plan} N BASE -- uv run --frozen python -m pytest TEST_FILES`));
+  assert.doesNotMatch(fresh, /</, "a copied placeholder must not become a shell redirect");
   assert.match(fresh, /separate words after --/);
   assert.match(fresh, /Next: Task 1/);
   assert.match(fresh, /commit as each task's steps say/i);
@@ -75,4 +76,26 @@ test("readLedger reads this plan's ledger only", async (context) => {
   await write("other", "# SDD ledger — plan: docs/superpowers/plans/other.md\nTask 2: complete (z)\n");
   await write("abs", `# SDD ledger — plan: ${path.join(cwd, plan)}\nTask 4: complete (w)\n`);
   assert.deepEqual(readLedger(cwd, plan), [1, 3, 4]);
+});
+
+test("planTasks accepts any heading level and skips fenced code, as task-brief does", async () => {
+  const { planTasks } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  assert.deepEqual(planTasks("## Task 1: A\n```\n### Task 9: fake\n```\n#### Task 2 — B\n### Task 3\n"),
+    [{ number: 1, title: "A" }, { number: 2, title: "B" }, { number: 3, title: "" }]);
+});
+
+test("planNote still names the plan and scripts when it finds no task headings", async () => {
+  const { planNote } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const note = planNote("docs/superpowers/plans/p.md", [], { started: {}, recorded: [] }, "/s");
+  assert.match(note, /docs\/superpowers\/plans\/p\.md/);
+  assert.ok(note.includes("/s/task-start docs/superpowers/plans/p.md"));
+});
+
+test("planNote lists commits since approval so finished work is recorded, not redone", async () => {
+  const { planTasks, planNote } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const tasks = planTasks("### Task 1: Model\n### Task 2: Routes\n");
+  const note = planNote("p.md", tasks, { started: {}, recorded: [] }, "/s", ["abc1234 feat: model"]);
+  assert.match(note, /Commits since approval: abc1234 feat: model/);
+  assert.match(note, /rather than redoing it/);
+  assert.doesNotMatch(planNote("p.md", tasks, { started: {}, recorded: [] }, "/s", []), /Commits since approval/);
 });

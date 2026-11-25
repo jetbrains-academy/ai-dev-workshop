@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -39,7 +40,8 @@ async function setup(context, reuse) {
   });
   const result = (command, text, isError = false) => runner.emitToolResult({ type: "tool_result", toolCallId: "b",
     toolName: "bash", input: { command }, content: [{ type: "text", text }], isError });
-  return { cwd, session, errors, say, start, call, sent, compact, result };
+  const emit = (event) => runner.emit(event);
+  return { cwd, session, errors, say, start, call, sent, compact, result, emit };
 }
 
 const brainstorm = "Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.";
@@ -313,4 +315,68 @@ test("progress is kept in the session, not in memory", async (context) => {
   assert.equal(second.sent[0].message.content,
     first.note({ started: { 2: { brief: "/w/task-2-brief.md", base: "abc1234" } }, recorded: [1] }));
   assert.deepEqual([...first.errors, ...second.errors], []);
+});
+
+const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+function gitInit(cwd) {
+  git(cwd, "init", "-q");
+  git(cwd, "-c", "user.email=t@localhost", "-c", "user.name=T", "commit", "-q", "--allow-empty", "-m", "seed");
+}
+
+test("a compaction after the run ended waits for the next prompt", async (context) => {
+  const { errors, result, compact, sent, emit } = await approvedRun(context);
+  await result(taskStart(1), "brief: /w/task-1-brief.md\nbase: abc1234");
+  await emit({ type: "agent_end", messages: [] });
+  await compact();
+  assert.equal(sent.at(-1).options.deliverAs, "nextTurn");
+  await emit({ type: "agent_start" });
+  await compact();
+  assert.equal(sent.at(-1).options.deliverAs, "steer");
+  assert.deepEqual(errors, []);
+});
+
+test("the note after a compaction lists commits made since approval", async (context) => {
+  const run = await setup(context);
+  gitInit(run.cwd);
+  await run.say(planning);
+  await run.start(planning);
+  await writeFile(path.join(run.cwd, plan), twoTasks);
+  await run.say(APPROVAL);
+  await run.start(APPROVAL);
+  git(run.cwd, "-c", "user.email=t@localhost", "-c", "user.name=T", "commit", "-q", "--allow-empty", "-m", "feat: model status");
+  await run.compact();
+  assert.match(run.sent[0].message.content, /Commits since approval: [0-9a-f]+ feat: model status/);
+  assert.deepEqual(run.errors, []);
+});
+
+test("the approval note skips a newer plan file that has no tasks", async (context) => {
+  const { cwd, errors, say, start } = await setup(context);
+  await say(planning);
+  await start(planning);
+  const real = path.join(cwd, "docs/superpowers/plans/2026-11-25-plan.md");
+  const notes = path.join(cwd, "docs/superpowers/plans/2026-11-25-review.md");
+  await writeFile(real, twoTasks);
+  await writeFile(notes, "# Review notes\n\nLooks fine.\n");
+  await utimes(real, new Date(2026, 10, 25, 9), new Date(2026, 10, 25, 9));
+  await utimes(notes, new Date(2026, 10, 25, 10), new Date(2026, 10, 25, 10));
+  await say(APPROVAL);
+  const [note] = planMessages(await start(APPROVAL));
+  assert.match(note.content, /2026-11-25-plan\.md/);
+  assert.deepEqual(errors, []);
+});
+
+test("a ledger left before approval does not count as progress", async (context) => {
+  const run = await setup(context);
+  await run.say(planning);
+  await run.start(planning);
+  await writeFile(path.join(run.cwd, plan), twoTasks);
+  const ledger = path.join(run.cwd, ".superpowers/sdd/2026-11-25-p");
+  await mkdir(ledger, { recursive: true });
+  await writeFile(path.join(ledger, "progress.md"), `# SDD ledger — plan: ${plan}\nTask 1: complete (rehearsal)\n`);
+  await run.say(APPROVAL);
+  await run.start(APPROVAL);
+  await run.compact();
+  assert.match(run.sent[0].message.content, /Recorded: none yet/);
+  assert.match(run.sent[0].message.content, /Next: Task 1\b/);
+  assert.deepEqual(run.errors, []);
 });

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, realpathSync, renameSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -51,27 +52,40 @@ const dateNote = (date: string) => `Today is ${date}. Name new files in docs/sup
 export interface PlanTask { number: number; title: string }
 export interface PlanProgress { started: Record<number, { brief: string; base: string }>; recorded: number[] }
 
+// Any heading level, outside fenced code, as Superpowers' task-brief reads them; 2 of 61 Mellum plans used `##`.
 export function planTasks(markdown: string): PlanTask[] {
-  return [...markdown.matchAll(/^### Task (\d+): (.+?)\s*$/gm)].map(([, number, title]) => ({ number: Number(number), title }));
+  let fence = "";
+  return markdown.split("\n").flatMap((line) => {
+    const marker = line.match(/^\s*(`{3,}|~{3,})/);
+    if (marker) fence = fence ? (marker[1].startsWith(fence) ? "" : fence) : marker[1];
+    const task = fence || marker ? null : line.match(/^#{1,6}[ \t]+Task[ \t]+(\d+)\b[:.)\-—\s]*(.*?)\s*$/);
+    return task ? [{ number: Number(task[1]), title: task[2] }] : [];
+  });
 }
 
 // The audience should see Superpowers' executing-plans run the plan; this note only tells Pi where it is.
 // In the 2026-11-25 runs Pi either never opened the plan or lost its place after a compaction.
-export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress, scripts: string): string | undefined {
+export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress, scripts: string,
+  commits: string[] = []): string | undefined {
   const recorded = new Set(progress.recorded);
   const next = tasks.find((task) => !recorded.has(task.number));
-  if (!next) return;
-  const started = progress.started[next.number];
+  if (tasks.length && !next) return;
+  const started = next && progress.started[next.number];
   const done = tasks.filter((task) => recorded.has(task.number)).map((task) => `Task ${task.number}`);
+  const title = (task: PlanTask) => `Task ${task.number}${task.title ? `: ${task.title}` : ""}`;
   return [
     `Phase 4 plan: ${plan}. Execute it with the executing-plans skill, one task at a time.`,
-    `Tasks: ${tasks.map((task) => `Task ${task.number}: ${task.title}`).join("; ")}.`,
+    tasks.length ? `Tasks: ${tasks.map(title).join("; ")}.` : "Tasks: as the plan's task headings list them.",
     `Recorded: ${done.length ? done.join(", ") : "none yet"}.`,
-    started
-      ? `Next: Continue Task ${next.number} from its brief ${started.brief} with base ${started.base}; ` +
-        "do not run task-start again for it."
-      : `Next: Task ${next.number}. Start it with \`${scripts}/task-start ${plan} ${next.number}\`.`,
-    `Finish each task with \`${scripts}/task-done ${plan} <N> <base> -- uv run --frozen python -m pytest <test files>\`; ` +
+    !next
+      ? `Next: the first task the plan lists. Start it with \`${scripts}/task-start ${plan} N\`, N being its number.`
+      : started
+        ? `Next: Continue Task ${next.number} from its brief ${started.brief} with base ${started.base}; ` +
+          "do not run task-start again for it."
+        : `Next: Task ${next.number}. Start it with \`${scripts}/task-start ${plan} ${next.number}\`.`,
+    ...(commits.length ? [`Commits since approval: ${commits.join("; ")}. If a task's work is already committed, ` +
+      "run task-start and task-done for it to record it rather than redoing it."] : []),
+    `Finish each task with \`${scripts}/task-done ${plan} N BASE -- uv run --frozen python -m pytest TEST_FILES\`; ` +
       "the test command goes as separate words after --, not one quoted string.",
     "Work the tasks in order, commit as each task's steps say, and do not move to the next task until task-done " +
       "records the current one.",
@@ -83,7 +97,7 @@ type Stage = { existing: string[] };
 type Phase4State =
   | ({ status: "design" } & Stage)
   | ({ status: "planning"; previousPlans: Record<string, string> } & Stage)
-  | { status: "approved"; plan?: string; progress?: PlanProgress }
+  | { status: "approved"; plan?: string; progress?: PlanProgress; head?: string; staleLedger?: number[] }
   | { status: "finished" };
 
 const unlocked = (state: Phase4State) => state.status === "approved" || state.status === "finished";
@@ -166,6 +180,14 @@ export function readLedger(cwd: string, plan: string): number[] {
     if (!named || resolve(cwd, named.trim()) !== wanted) return [];
     return lines.flatMap((line) => line.match(/^Task (\d+): complete\b/)?.[1] ?? []).map(Number);
   }).sort((a, b) => a - b);
+}
+
+function gitOutput(cwd: string, ...args: string[]): string | undefined {
+  try {
+    return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return undefined;
+  }
 }
 
 // `find` actions that run or write something.
@@ -269,14 +291,24 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
 
   // A compaction can drop the execution prompt and the task workflow (2026-11-25 PyCharm run): restate where
   // Pi is. "steer" reaches the next model call of a running turn; when idle it waits for the next prompt.
-  pi.on("session_compact", (_event, ctx) => {
+  // Pi can compact after a run has ended; a steering message then would start a turn by itself.
+  let runEnded = false;
+  pi.on("agent_start", () => { runEnded = false; });
+  pi.on("agent_end", () => { runEnded = true; });
+
+  pi.on("session_compact", (event, ctx) => {
     const state = stateFor(ctx);
     if (state?.status !== "approved" || !state.plan || !statIfPresent(join(ctx.cwd, state.plan))) return;
     const progress = state.progress ?? { started: {}, recorded: [] };
-    const recorded = [...new Set([...progress.recorded, ...readLedger(ctx.cwd, state.plan)])];
+    // A ledger from an earlier rehearsal of the same plan name is not this run's progress.
+    const ledger = readLedger(ctx.cwd, state.plan).filter((n) => !(state.staleLedger ?? []).includes(n));
+    const recorded = [...new Set([...progress.recorded, ...ledger])];
+    const log = state.head ? gitOutput(ctx.cwd, "log", "--oneline", "--reverse", `${state.head}..HEAD`) : undefined;
     const note = planNote(state.plan, planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8")),
-      { ...progress, recorded }, scriptsDir());
-    if (note) pi.sendMessage({ customType: PLAN_NOTE, content: note, display: true }, { deliverAs: "steer" });
+      { ...progress, recorded }, scriptsDir(), log ? log.split("\n") : []);
+    if (!note) return;
+    const deliverAs = runEnded && !event.willRetry ? "nextTurn" : "steer";
+    pi.sendMessage({ customType: PLAN_NOTE, content: note, display: true }, { deliverAs });
   });
 
   pi.on("input", (event, ctx) => {
@@ -303,8 +335,14 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
       ? Object.entries(savedPlans(ctx.cwd)).filter(([path, hash]) => hash !== state.previousPlans[path]).map(([path]) => path)
       : [];
     if (!event.streamingBehavior && ctx.isIdle() && fresh.length) {
-      const plan = fresh.reduce((a, b) => (lstatSync(join(ctx.cwd, b)).mtimeMs > lstatSync(join(ctx.cwd, a)).mtimeMs ? b : a));
-      pi.appendEntry<Phase4State>(ENTRY, { status: "approved", plan, progress: { started: {}, recorded: [] } });
+      const newest = (paths: string[]) =>
+        paths.reduce((a, b) => (lstatSync(join(ctx.cwd, b)).mtimeMs > lstatSync(join(ctx.cwd, a)).mtimeMs ? b : a));
+      const withTasks = fresh.filter((path) => planTasks(readFileSync(join(ctx.cwd, path), "utf8")).length);
+      const plan = newest(withTasks.length ? withTasks : fresh);
+      pi.appendEntry<Phase4State>(ENTRY, {
+        status: "approved", plan, progress: { started: {}, recorded: [] },
+        head: gitOutput(ctx.cwd, "rev-parse", "HEAD"), staleLedger: readLedger(ctx.cwd, plan),
+      });
       approvalNote = true;
       return;
     }

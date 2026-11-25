@@ -157,11 +157,17 @@ During execution the guard follows `executing-plans`' own scripts. A
 `task-start` that prints a brief and a base marks that task started, and a
 `task-done` that prints its `ledger:` line marks it recorded. The guard keeps
 this in the session, because the skill deletes its ledger after the final
-review. After each compaction it sends the note again, as a steering message
-that reaches the next model call. The resent note says which tasks are
-recorded, and either which task to continue (with its brief and base, without
-another `task-start`) or which task to start next. No note is sent before
-approval, after the finish prompt, or once every task is recorded. In the
+review. After each compaction it sends the note again. During a run it goes
+in as a steering message, so it reaches the next model call. After a run has
+ended it waits for the next prompt; the guard never starts a turn itself. The
+resent note says which tasks are recorded, and either which task to continue
+(with its brief and base, without another `task-start`) or which task to start
+next. It also lists the commits made since approval, so Pi records finished
+work with the scripts rather than redoing it. Ledger lines that were already
+there at approval, for example from a rehearsal earlier the same day, do not
+count. Task headings may use any level (`##`, `###`), and a plan file without
+task headings is passed over when another new plan has them. No note is sent
+before approval, after the finish prompt, or once every task is recorded. In the
 2026-11-25 PyCharm run, a compaction summary said Pi was still waiting to
 choose an execution approach. Pi then skipped the plan's last four tasks and
 coded against the grader.
