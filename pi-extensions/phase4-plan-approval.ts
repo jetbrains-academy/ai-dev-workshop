@@ -83,7 +83,10 @@ type Stage = { existing: string[] };
 type Phase4State =
   | ({ status: "design" } & Stage)
   | ({ status: "planning"; previousPlans: Record<string, string> } & Stage)
-  | { status: "approved"; plan?: string; progress?: PlanProgress };
+  | { status: "approved"; plan?: string; progress?: PlanProgress }
+  | { status: "finished" };
+
+const unlocked = (state: Phase4State) => state.status === "approved" || state.status === "finished";
 
 function stateEntry(ctx: ExtensionContext) {
   const entry = ctx.sessionManager.getBranch().findLast(
@@ -149,6 +152,22 @@ function existingArtifacts(cwd: string): string[] {
   });
 }
 
+// Tasks executing-plans' task-done recorded in this plan's ledger. The workspace directory name can be
+// disambiguated, so match the ledger by the plan named on its first line.
+export function readLedger(cwd: string, plan: string): number[] {
+  const root = join(cwd, ".superpowers/sdd");
+  if (!statIfPresent(root)) return [];
+  const wanted = resolve(cwd, plan);
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const file = join(root, entry.name, "progress.md");
+    if (!entry.isDirectory() || !statIfPresent(file)) return [];
+    const [first, ...lines] = readFileSync(file, "utf8").split("\n");
+    const named = first.match(/^# SDD ledger — plan: (.+)$/)?.[1];
+    if (!named || resolve(cwd, named.trim()) !== wanted) return [];
+    return lines.flatMap((line) => line.match(/^Task (\d+): complete\b/)?.[1] ?? []).map(Number);
+  }).sort((a, b) => a - b);
+}
+
 // `find` actions that run or write something.
 const FIND_ACTIONS = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
 
@@ -199,14 +218,14 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     }
     const entry = stateEntry(ctx);
     const state = entry?.data as Phase4State | undefined;
-    if (!entry || !state || state.status === "approved" || entry.id === datedStage) return;
+    if (!entry || !state || unlocked(state) || entry.id === datedStage) return;
     datedStage = entry.id;
     return { message: { customType: "workshop-phase4-date", content: dateNote(today()), display: true } };
   });
 
   pi.on("tool_result", (event, ctx) => {
     const state = stateFor(ctx);
-    if (!state || state.status === "approved" || event.isError) return;
+    if (!state || unlocked(state) || event.isError) return;
     if (event.toolName !== "write" && event.toolName !== "edit") return;
     const target = artifactPath(ctx.cwd, (event.input as { path?: unknown }).path);
     if (!target || !statIfPresent(target)) return;
@@ -224,6 +243,42 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     return { content: [...event.content, { type: "text" as const, text }] };
   });
 
+  // Track executing-plans' own scripts from their results: a printed brief and base start a task, a
+  // printed ledger line records it. Kept in session entries, since the workspace can be deleted.
+  pi.on("tool_result", (event, ctx) => {
+    const state = stateFor(ctx);
+    if (state?.status !== "approved" || !state.plan || event.toolName !== "bash" || event.isError) return;
+    const command = (event.input as { command?: unknown }).command;
+    if (typeof command !== "string") return;
+    const script = command.match(/executing-plans\/scripts\/(task-start|task-done)\s+(\S+)\s+(\d+)\b/);
+    if (!script || resolve(ctx.cwd, script[2]) !== resolve(ctx.cwd, state.plan)) return;
+    const text = event.content.map((item) => (item.type === "text" ? item.text : "")).join("\n");
+    const n = Number(script[3]);
+    const progress = structuredClone(state.progress ?? { started: {}, recorded: [] });
+    if (script[1] === "task-start") {
+      const brief = text.match(/^brief: (.+)$/m)?.[1];
+      const base = text.match(/^base: (\S+)$/m)?.[1];
+      if (!brief || !base) return;
+      progress.started[n] = { brief: brief.trim(), base };
+    } else {
+      if (!new RegExp(`^ledger: Task ${n}: complete\\b`, "m").test(text) || progress.recorded.includes(n)) return;
+      progress.recorded.push(n);
+    }
+    pi.appendEntry<Phase4State>(ENTRY, { ...state, progress });
+  });
+
+  // A compaction can drop the execution prompt and the task workflow (2026-11-25 PyCharm run): restate where
+  // Pi is. "steer" reaches the next model call of a running turn; when idle it waits for the next prompt.
+  pi.on("session_compact", (_event, ctx) => {
+    const state = stateFor(ctx);
+    if (state?.status !== "approved" || !state.plan || !statIfPresent(join(ctx.cwd, state.plan))) return;
+    const progress = state.progress ?? { started: {}, recorded: [] };
+    const recorded = [...new Set([...progress.recorded, ...readLedger(ctx.cwd, state.plan)])];
+    const note = planNote(state.plan, planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8")),
+      { ...progress, recorded }, scriptsDir());
+    if (note) pi.sendMessage({ customType: PLAN_NOTE, content: note, display: true }, { deliverAs: "steer" });
+  });
+
   pi.on("input", (event, ctx) => {
     if (event.source !== "interactive" && event.source !== "rpc") return;
     const text = event.text.trim().replace(/^\/skill:(?:brainstorming|writing-plans|executing-plans)\s+/, "");
@@ -237,9 +292,13 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
       });
       return;
     }
+    if (/\bfinish Phase 4\b/i.test(text) && stateFor(ctx)?.status === "approved") {
+      pi.appendEntry<Phase4State>(ENTRY, { status: "finished" });
+      return;
+    }
     if (text !== APPROVAL) return;
     const state = stateFor(ctx);
-    if (!state || state.status === "approved") return;
+    if (!state || unlocked(state)) return;
     const fresh = state.status === "planning"
       ? Object.entries(savedPlans(ctx.cwd)).filter(([path, hash]) => hash !== state.previousPlans[path]).map(([path]) => path)
       : [];
@@ -255,7 +314,7 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
 
   pi.on("tool_call", (event, ctx) => {
     const state = stateFor(ctx);
-    if (!state || state.status === "approved" || READ_TOOLS.has(event.toolName)) return;
+    if (!state || unlocked(state) || READ_TOOLS.has(event.toolName)) return;
     if ((event.toolName === "write" || event.toolName === "edit") && artifactPath(ctx.cwd, event.input.path)) return;
     if (event.toolName === "bash" && readOnlyShell(event.input.command)) return;
     const input = event.input as Record<string, unknown>;

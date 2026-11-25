@@ -13,22 +13,33 @@ const extension = fileURLToPath(new URL("../../pi-extensions/phase4-plan-approva
 const skills = sdk.loadSkillsFromDir({ dir: path.join(process.env.SUPERPOWERS_DIR, "skills"), source: "user" }).skills;
 const writingPlans = skills.find((skill) => skill.name === "writing-plans").filePath;
 
-async function setup(context) {
-  const cwd = await mkdtemp(path.join(tmpdir(), "pi-phase4-approval-"));
-  context.after(() => rm(cwd, { recursive: true, force: true }));
-  await mkdir(path.join(cwd, "docs/superpowers/plans"), { recursive: true });
+async function setup(context, reuse) {
+  const cwd = reuse?.cwd ?? await mkdtemp(path.join(tmpdir(), "pi-phase4-approval-"));
+  if (!reuse) {
+    context.after(() => rm(cwd, { recursive: true, force: true }));
+    await mkdir(path.join(cwd, "docs/superpowers/plans"), { recursive: true });
+  }
   const loaded = await sdk.discoverAndLoadExtensions([extension], cwd, cwd);
   assert.deepEqual(loaded.errors, []);
-  const session = sdk.SessionManager.inMemory(cwd);
-  // Pi binds appendEntry to the session at startup; do the same here.
+  const session = reuse?.session ?? sdk.SessionManager.inMemory(cwd);
+  // Pi binds appendEntry and sendMessage to the session at startup; do the same here.
   loaded.runtime.appendEntry = (customType, data) => session.appendCustomEntry(customType, data);
+  const sent = [];
+  loaded.runtime.sendMessage = (message, options) => sent.push({ message, options });
   const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, cwd, session, undefined);
   const errors = [];
   runner.onError((error) => errors.push(error));
   const say = (text) => runner.emitInput(text, undefined, "rpc");
   const start = (prompt) => runner.emitBeforeAgentStart({ messageType: "user", prompt }, { cwd, skills });
   const call = (toolName, input) => runner.emitToolCall({ type: "tool_call", toolCallId: "call", toolName, input });
-  return { cwd, errors, say, start, call };
+  const compact = () => runner.emit({
+    type: "session_compact", fromExtension: false, reason: "threshold", willRetry: false,
+    compactionEntry: { type: "compaction", id: "c", parentId: null, timestamp: new Date().toISOString(),
+      summary: "s", firstKeptEntryId: "x", tokensBefore: 45000 },
+  });
+  const result = (command, text, isError = false) => runner.emitToolResult({ type: "tool_result", toolCallId: "b",
+    toolName: "bash", input: { command }, content: [{ type: "text", text }], isError });
+  return { cwd, session, errors, say, start, call, sent, compact, result };
 }
 
 const brainstorm = "Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.";
@@ -214,4 +225,92 @@ test("with two plans saved while planning, the note names the newest", async (co
   assert.match(note.content, /2026-11-25-b\.md/);
   assert.doesNotMatch(note.content, /2026-11-25-a\.md/);
   assert.deepEqual(errors, []);
+});
+
+const FINISH = "Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.";
+const plan = "docs/superpowers/plans/2026-11-25-p.md";
+const taskStart = (n) => `${scripts}/task-start ${plan} ${n}`;
+const taskDone = (n) => `${scripts}/task-done ${plan} ${n} abc1234 -- uv run --frozen python -m pytest tests/test_models.py`;
+const ledgerLine = (n) => `ledger: Task ${n}: complete (commits abc1234..def5678, tests: pytest → 1 passed)`;
+
+async function approvedRun(context) {
+  const run = await setup(context);
+  await run.say(planning);
+  await run.start(planning);
+  await writeFile(path.join(run.cwd, plan), twoTasks);
+  await run.say("/skill:executing-plans " + APPROVAL);
+  await run.start("/skill:executing-plans " + APPROVAL);
+  const { planNote, planTasks } = await import(pathToFileURL(extension).href);
+  run.note = (progress) => planNote(plan, planTasks(twoTasks), progress, scripts);
+  return run;
+}
+
+test("after a compaction mid-task, Pi is told to continue that task", async (context) => {
+  const { errors, result, compact, sent, note } = await approvedRun(context);
+  await result(taskStart(1), "brief: /w/task-1-brief.md\nbase: abc1234");
+  await compact();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].options.deliverAs, "steer");
+  assert.equal(sent[0].options.triggerTurn, undefined);
+  assert.equal(sent[0].message.customType, "workshop-phase4-plan");
+  assert.equal(sent[0].message.content, note({ started: { 1: { brief: "/w/task-1-brief.md", base: "abc1234" } }, recorded: [] }));
+  assert.deepEqual(errors, []);
+});
+
+test("failed task-start and task-done calls record nothing", async (context) => {
+  const { errors, result, compact, sent, note } = await approvedRun(context);
+  await result(taskStart(1), "brief: /w/task-1-brief.md\nbase: abc1234", true);
+  await result(taskStart(1), "usage: task-start PLAN_FILE TASK_NUMBER");
+  await result(taskDone(1), "task-done: test command exited 1; Task 1 NOT recorded", true);
+  await compact();
+  assert.equal(sent[0].message.content, note({ started: {}, recorded: [] }));
+  assert.deepEqual(errors, []);
+});
+
+test("recorded tasks survive the ledger being deleted", async (context) => {
+  const { cwd, errors, result, compact, sent, note } = await approvedRun(context);
+  const ledger = path.join(cwd, ".superpowers/sdd/2026-11-25-p");
+  await mkdir(ledger, { recursive: true });
+  await writeFile(path.join(ledger, "progress.md"), `# SDD ledger — plan: ${plan}\nTask 1: complete (x)\n`);
+  await result(taskDone(1), "1 passed\n" + ledgerLine(1));
+  await rm(path.join(cwd, ".superpowers"), { recursive: true });
+  await compact();
+  assert.equal(sent[0].message.content, note({ started: {}, recorded: [1] }));
+  assert.deepEqual(errors, []);
+});
+
+test("no note once every task is recorded, from results or the ledger", async (context) => {
+  const { cwd, errors, result, compact, sent } = await approvedRun(context);
+  await result(taskDone(1), ledgerLine(1));
+  const ledger = path.join(cwd, ".superpowers/sdd/2026-11-25-p");
+  await mkdir(ledger, { recursive: true });
+  await writeFile(path.join(ledger, "progress.md"), `# SDD ledger — plan: ${plan}\nTask 2: complete (x)\n`);
+  await compact();
+  assert.equal(sent.length, 0);
+  assert.deepEqual(errors, []);
+});
+
+test("no note after the finish prompt or before approval", async (context) => {
+  const early = await setup(context);
+  await early.say(planning);
+  await early.compact();
+  assert.equal(early.sent.length, 0);
+  const { say, compact, sent, call, errors } = await approvedRun(context);
+  await say(FINISH);
+  await compact();
+  assert.equal(sent.length, 0);
+  assert.equal((await call("edit", editModel))?.block, undefined);
+  assert.deepEqual(errors, [...early.errors]);
+});
+
+test("progress is kept in the session, not in memory", async (context) => {
+  const first = await approvedRun(context);
+  await first.result(taskStart(2), "brief: /w/task-2-brief.md\nbase: abc1234");
+  await first.result(taskDone(1), ledgerLine(1));
+  const second = await setup(context, { cwd: first.cwd, session: first.session });
+  await second.start("Continue.");
+  await second.compact();
+  assert.equal(second.sent[0].message.content,
+    first.note({ started: { 2: { brief: "/w/task-2-brief.md", base: "abc1234" } }, recorded: [1] }));
+  assert.deepEqual([...first.errors, ...second.errors], []);
 });

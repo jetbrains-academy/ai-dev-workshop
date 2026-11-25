@@ -153,6 +153,19 @@ were saved while planning, the note names the newest. On 2026-11-25, one run
 never opened its plan during execution and skipped every commit step, and
 another passed `task-done` its test command as one quoted string.
 
+During execution the guard follows `executing-plans`' own scripts. A
+`task-start` that prints a brief and a base marks that task started, and a
+`task-done` that prints its `ledger:` line marks it recorded. The guard keeps
+this in the session, because the skill deletes its ledger after the final
+review. After each compaction it sends the note again, as a steering message
+that reaches the next model call. The resent note says which tasks are
+recorded, and either which task to continue (with its brief and base, without
+another `task-start`) or which task to start next. No note is sent before
+approval, after the finish prompt, or once every task is recorded. In the
+2026-11-25 PyCharm run, a compaction summary said Pi was still waiting to
+choose an execution approach. Pi then skipped the plan's last four tasks and
+coded against the grader.
+
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
 Pi can still inspect Git status and create commits on its current branch.

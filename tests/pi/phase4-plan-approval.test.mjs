@@ -57,3 +57,22 @@ test("planNote names the plan, its tasks, the scripts and where Pi is", async ()
   assert.match(mid, /do not run task-start again/i);
   assert.equal(planNote("p.md", tasks, { started: {}, recorded: [1, 2] }, s), undefined);
 });
+
+test("readLedger reads this plan's ledger only", async (context) => {
+  const { mkdtemp, mkdir, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const { readLedger } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const cwd = await mkdtemp(path.join(tmpdir(), "pi-ledger-"));
+  context.after(() => rm(cwd, { recursive: true, force: true }));
+  const plan = "docs/superpowers/plans/p.md";
+  assert.deepEqual(readLedger(cwd, plan), []);
+  const write = async (dir, text) => {
+    await mkdir(path.join(cwd, ".superpowers/sdd", dir), { recursive: true });
+    await writeFile(path.join(cwd, ".superpowers/sdd", dir, "progress.md"), text);
+  };
+  await write("p", `# SDD ledger — plan: ${plan}\nTask 1: complete (commits a..b, tests: x → 1 passed)\nTask 3: complete (y)\n`);
+  await write("other", "# SDD ledger — plan: docs/superpowers/plans/other.md\nTask 2: complete (z)\n");
+  await write("abs", `# SDD ledger — plan: ${path.join(cwd, plan)}\nTask 4: complete (w)\n`);
+  assert.deepEqual(readLedger(cwd, plan), [1, 3, 4]);
+});
