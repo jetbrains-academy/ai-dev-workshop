@@ -12,3 +12,9 @@ dev = ["pytest==8.3.4"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-q --tb=short"
+verbosity_assertions = 0
+filterwarnings = [
+    "ignore::DeprecationWarning:starlette.*",
+    "ignore::DeprecationWarning:fastapi.*",
+]
