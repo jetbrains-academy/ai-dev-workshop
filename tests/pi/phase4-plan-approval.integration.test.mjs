@@ -44,6 +44,13 @@ test("before design approval, code edits are refused with the design-only step",
   assert.match(refused.reason, /docs\/superpowers\/specs\//);
   assert.match(refused.reason, /end your turn/i);
   assert.equal(refused.terminate, undefined);
+  assert.match(refused.reason, /^Blocked just now: your `edit` call on `models\.py`/);
+  const shell = await call("bash", { command: 'find . -name "SKILL.md" 2>/dev/null || ls' });
+  assert.equal(shell?.block, true);
+  assert.match(shell.reason, /^Blocked just now: your `bash` call `find \. -name "SKILL\.md" 2>\/dev\/null \|\| ls`/);
+  assert.match(shell.reason, /`\|\|`/);
+  assert.match(shell.reason, /read, find and grep tools/);
+  assert.match(shell.reason, /docs\/superpowers\/specs\//);
   assert.deepEqual(errors, []);
 });
 

@@ -121,6 +121,13 @@ refused call also sets `terminate`, so Pi ends the turn instead of letting the
 model keep trying. In the 2026-11-23 trial, two of 16 planning turns looped
 against the old refusal (42 and 75 refusals), and one hit the 20-minute limit.
 
+Every refusal opens by naming the call it answers, for example "Blocked just
+now: your `bash` call `find . -name "SKILL.md" 2>/dev/null || ls`." In a
+2026-11-25 PyCharm run, Mellum read a bare refusal as an odd message from an
+earlier interaction and ignored it. A refused shell command also lists the
+read-only forms that are allowed: `ls`, `pwd`, `git status`, `date`, and plain
+`find` with relative paths, without pipes, `||`, `;`, `&`, redirection or `$(`.
+
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
 Pi can still inspect Git status and create commits on its current branch.

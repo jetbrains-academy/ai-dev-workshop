@@ -16,6 +16,24 @@ const planOnly = (skill: string | undefined) => LOCKED + " This turn only writes
 const planSaved = (path: string) => `Phase 4 approval guard: your plan is saved at ${path}. ` +
   "Code edits stay locked until the user approves it, so this turn ends here.";
 
+// Mellum read a bare refusal as "an odd message from a previous interaction" and ignored it,
+// so every refusal opens by naming the call it answers.
+export function blockedCall(toolName: string, input: Record<string, unknown>): string {
+  const opening = `Blocked just now: your \`${toolName}\` call`;
+  if (typeof input.command === "string") {
+    const line = input.command.replace(/\s+/g, " ").trim();
+    return `${opening} \`${line.length > 120 ? line.slice(0, 119) + "…" : line}\`.`;
+  }
+  return typeof input.path === "string" ? `${opening} on \`${input.path}\`.` : `${opening}.`;
+}
+
+const SHELL_ALLOWED = "Read-only `ls`, `pwd`, `git status`, `date`, and plain `find` with relative paths are allowed " +
+  "when they use no `|`, `||`, `;`, `&`, `>`, `2>` or `$(`; the read, find and grep tools are always allowed.";
+
+function refusal(toolName: string, input: Record<string, unknown>, stage: string): string {
+  return [blockedCall(toolName, input), stage, ...(toolName === "bash" ? [SHELL_ALLOWED] : [])].join(" ");
+}
+
 type Phase4State = { status: "design" | "approved" } | { status: "planning"; previousPlans: Record<string, string> };
 
 function stateFor(ctx: ExtensionContext): Phase4State | undefined {
@@ -129,10 +147,11 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     if (!state || state.status === "approved" || READ_TOOLS.has(event.toolName)) return;
     if ((event.toolName === "write" || event.toolName === "edit") && artifactPath(ctx.cwd, event.input.path)) return;
     if (event.toolName === "bash" && readOnlyShell(event.input.command)) return;
-    if (state.status === "design") return { block: true, reason: DESIGN_ONLY };
+    const input = event.input as Record<string, unknown>;
+    if (state.status === "design") return { block: true, reason: refusal(event.toolName, input, DESIGN_ONLY) };
     // Once a new plan exists, a turn that keeps reaching for code is looping: end it.
     const saved = Object.entries(savedPlans(ctx.cwd)).find(([path, hash]) => hash !== state.previousPlans[path]);
-    if (saved) return { block: true, reason: planSaved(saved[0]), terminate: true };
-    return { block: true, reason: planOnly(writingPlans) };
+    if (saved) return { block: true, reason: refusal(event.toolName, input, planSaved(saved[0])), terminate: true };
+    return { block: true, reason: refusal(event.toolName, input, planOnly(writingPlans)) };
   });
 }
