@@ -86,11 +86,12 @@ The Phase 4 design looks good. Please proceed with implementation planning.
 ```
 
 ```
-The plan looks good. Proceed with native execution.
+/skill:executing-plans The plan looks good. Proceed with native execution.
 ```
 
-If Pi skips a skill, use `/skill:writing-plans` or `/skill:executing-plans`
-with the corresponding prompt. If it sends an empty reply, or a reply that is
+The approval prompt names `executing-plans`, so Pi runs the plan with that
+skill's task scripts. If Pi skips the planning skill, send the planning prompt
+again after `/skill:writing-plans`. If it sends an empty reply, or a reply that is
 only a tool call printed as text (`{"name": "read", ...}`), send `Continue.`
 If planning stops right after Pi saves its plan, review the plan and send the
 approval prompt.

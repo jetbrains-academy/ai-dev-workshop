@@ -48,12 +48,42 @@ export function datedName(filename: string, date: string): string {
 const dateNote = (date: string) => `Today is ${date}. Name new files in docs/superpowers/specs/ and ` +
   `docs/superpowers/plans/ as ${date}-<name>.md (the YYYY-MM-DD-<name>.md the skills ask for).`;
 
+export interface PlanTask { number: number; title: string }
+export interface PlanProgress { started: Record<number, { brief: string; base: string }>; recorded: number[] }
+
+export function planTasks(markdown: string): PlanTask[] {
+  return [...markdown.matchAll(/^### Task (\d+): (.+?)\s*$/gm)].map(([, number, title]) => ({ number: Number(number), title }));
+}
+
+// The audience should see Superpowers' executing-plans run the plan; this note only tells Pi where it is.
+// In the 2026-11-25 runs Pi either never opened the plan or lost its place after a compaction.
+export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress, scripts: string): string | undefined {
+  const recorded = new Set(progress.recorded);
+  const next = tasks.find((task) => !recorded.has(task.number));
+  if (!next) return;
+  const started = progress.started[next.number];
+  const done = tasks.filter((task) => recorded.has(task.number)).map((task) => `Task ${task.number}`);
+  return [
+    `Phase 4 plan: ${plan}. Execute it with the executing-plans skill, one task at a time.`,
+    `Tasks: ${tasks.map((task) => `Task ${task.number}: ${task.title}`).join("; ")}.`,
+    `Recorded: ${done.length ? done.join(", ") : "none yet"}.`,
+    started
+      ? `Next: Continue Task ${next.number} from its brief ${started.brief} with base ${started.base}; ` +
+        "do not run task-start again for it."
+      : `Next: Task ${next.number}. Start it with \`${scripts}/task-start ${plan} ${next.number}\`.`,
+    `Finish each task with \`${scripts}/task-done ${plan} <N> <base> -- uv run --frozen python -m pytest <test files>\`; ` +
+      "the test command goes as separate words after --, not one quoted string.",
+    "Work the tasks in order, commit as each task's steps say, and do not move to the next task until task-done " +
+      "records the current one.",
+  ].join("\n");
+}
+
 // `existing` lists the specs and plans present at the stage prompt; only files Pi makes later are renamed.
 type Stage = { existing: string[] };
 type Phase4State =
   | ({ status: "design" } & Stage)
   | ({ status: "planning"; previousPlans: Record<string, string> } & Stage)
-  | { status: "approved" };
+  | { status: "approved"; plan?: string; progress?: PlanProgress };
 
 function stateEntry(ctx: ExtensionContext) {
   const entry = ctx.sessionManager.getBranch().findLast(
@@ -147,11 +177,26 @@ function readOnlyShell(command: unknown): boolean {
   return false;
 }
 
+const PLAN_NOTE = "workshop-phase4-plan";
+
 export default function phase4PlanApproval(pi: ExtensionAPI) {
   let writingPlans: string | undefined;
   let datedStage: string | undefined;
+  let executingPlans: string | undefined;
+  let approvalNote = false;
+  const scriptsDir = () => (executingPlans ? join(dirname(executingPlans), "scripts") : "executing-plans/scripts");
   pi.on("before_agent_start", (event, ctx) => {
     writingPlans = event.systemPromptOptions.skills.find((skill) => skill.name === "writing-plans")?.filePath ?? writingPlans;
+    executingPlans = event.systemPromptOptions.skills.find((skill) => skill.name === "executing-plans")?.filePath ?? executingPlans;
+    if (approvalNote) {
+      approvalNote = false;
+      const state = stateFor(ctx);
+      if (state?.status !== "approved" || !state.plan) return;
+      const note = planNote(state.plan, planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8")),
+        state.progress ?? { started: {}, recorded: [] }, scriptsDir());
+      if (note) return { message: { customType: PLAN_NOTE, content: note, display: true } };
+      return;
+    }
     const entry = stateEntry(ctx);
     const state = entry?.data as Phase4State | undefined;
     if (!entry || !state || state.status === "approved" || entry.id === datedStage) return;
@@ -195,9 +240,13 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     if (text !== APPROVAL) return;
     const state = stateFor(ctx);
     if (!state || state.status === "approved") return;
-    if (!event.streamingBehavior && ctx.isIdle() && state.status === "planning"
-        && Object.entries(savedPlans(ctx.cwd)).some(([path, hash]) => hash !== state.previousPlans[path])) {
-      pi.appendEntry<Phase4State>(ENTRY, { status: "approved" });
+    const fresh = state.status === "planning"
+      ? Object.entries(savedPlans(ctx.cwd)).filter(([path, hash]) => hash !== state.previousPlans[path]).map(([path]) => path)
+      : [];
+    if (!event.streamingBehavior && ctx.isIdle() && fresh.length) {
+      const plan = fresh.reduce((a, b) => (lstatSync(join(ctx.cwd, b)).mtimeMs > lstatSync(join(ctx.cwd, a)).mtimeMs ? b : a));
+      pi.appendEntry<Phase4State>(ENTRY, { status: "approved", plan, progress: { started: {}, recorded: [] } });
+      approvalNote = true;
       return;
     }
     ctx.ui.notify("Phase 4 is still locked. Approve after Pi has saved its plan and stopped.", "warning");

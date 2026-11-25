@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -175,5 +175,43 @@ test("a misnamed spec is not renamed onto a file that predates the stage", async
   assert.equal(await readFile(path.join(cwd, clash), "utf8"), "# Earlier\n");
   assert.equal(await exists(path.join(cwd, "docs/superpowers/specs/clash.md")), true);
   assert.match(result.content.at(-1).text, /already exists/);
+  assert.deepEqual(errors, []);
+});
+
+const APPROVAL = "The plan looks good. Proceed with native execution.";
+const scripts = path.join(path.dirname(skills.find((skill) => skill.name === "executing-plans").filePath), "scripts");
+const twoTasks = "# Plan\n\n### Task 1: Model\n\n- [ ] step\n\n### Task 2: Routes\n\n- [ ] step\n";
+const planMessages = (result) => result.messages.filter((m) => m.customType === "workshop-phase4-plan");
+
+test("the executing-plans approval prompt unlocks execution and brings one plan note", async (context) => {
+  const { cwd, errors, say, start, call } = await setup(context);
+  const { planNote, planTasks } = await import(pathToFileURL(extension).href);
+  await say(planning);
+  await start(planning);
+  const plan = "docs/superpowers/plans/2026-11-25-p.md";
+  await writeFile(path.join(cwd, plan), twoTasks);
+  await say("/skill:executing-plans " + APPROVAL);
+  assert.equal((await call("edit", editModel))?.block, undefined);
+  const notes = planMessages(await start("/skill:executing-plans " + APPROVAL));
+  assert.equal(notes.length, 1);
+  assert.equal(notes[0].content, planNote(plan, planTasks(twoTasks), { started: {}, recorded: [] }, scripts));
+  assert.equal(planMessages(await start("Continue.")).length, 0);
+  assert.deepEqual(errors, []);
+});
+
+test("with two plans saved while planning, the note names the newest", async (context) => {
+  const { cwd, errors, say, start } = await setup(context);
+  await say(planning);
+  await start(planning);
+  const older = path.join(cwd, "docs/superpowers/plans/2026-11-25-a.md");
+  const newer = path.join(cwd, "docs/superpowers/plans/2026-11-25-b.md");
+  await writeFile(older, twoTasks);
+  await writeFile(newer, twoTasks);
+  await utimes(older, new Date(2026, 10, 25, 9), new Date(2026, 10, 25, 9));
+  await utimes(newer, new Date(2026, 10, 25, 10), new Date(2026, 10, 25, 10));
+  await say(APPROVAL);
+  const [note] = planMessages(await start(APPROVAL));
+  assert.match(note.content, /2026-11-25-b\.md/);
+  assert.doesNotMatch(note.content, /2026-11-25-a\.md/);
   assert.deepEqual(errors, []);
 });

@@ -143,6 +143,16 @@ without today's date, the guard renames the file at once, and the write's
 result names the new path. Files that existed when the stage began are left
 alone, and a rename never overwrites one of them.
 
+The README's approval prompt starts with `/skill:executing-plans`, so the skill
+is part of the execution prompt; the guard strips that prefix before matching
+the approval text. When approval unlocks execution, the guard adds one note to
+that turn: the plan's path, its tasks, the exact `task-start` and `task-done`
+commands, and an instruction to work the tasks in order, commit as each task
+says, and not move on until `task-done` records the task. If several plans
+were saved while planning, the note names the newest. On 2026-11-25, one run
+never opened its plan during execution and skipped every commit step, and
+another passed `task-done` its test command as one quoted string.
+
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
 Pi can still inspect Git status and create commits on its current branch.
