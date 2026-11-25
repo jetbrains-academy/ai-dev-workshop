@@ -11,6 +11,7 @@ for (const name of ["PI_PACKAGE_DIR", "SUPERPOWERS_DIR"]) {
 const sdk = await import(pathToFileURL(path.join(process.env.PI_PACKAGE_DIR, "dist/index.js")).href);
 const upstream = path.join(process.env.SUPERPOWERS_DIR, ".pi/extensions/superpowers.ts");
 const local = fileURLToPath(new URL("../../pi-extensions/superpowers-unbootstrap.ts", import.meta.url));
+const { NATIVE_ONLY } = await import(pathToFileURL(local).href);
 const sandbox = await mkdtemp(path.join(tmpdir(), "pi-unbootstrap-test-"));
 after(() => rm(sandbox, { recursive: true, force: true }));
 const cwd = path.join(sandbox, "project");
@@ -118,4 +119,22 @@ test("Pi reports a projection error and retains the unfiltered context", async (
   assert.equal(errors.length, 1);
   assert.equal(errors[0].event, "context_with_system");
   assert.match(errors[0].error, /session unavailable/);
+});
+
+test("a writing-plans read tells Pi to offer only native execution", async () => {
+  const { runner, errors } = await setup([local]);
+  const skill = path.join(process.env.SUPERPOWERS_DIR, "skills/writing-plans/SKILL.md");
+  const read = (input, isError = false) => runner.emitToolResult({ type: "tool_result", toolCallId: "r", toolName: "read",
+    input, content: [{ type: "text", text: "skill" }], isError });
+  const ok = await read({ path: skill });
+  assert.equal(ok.content.length, 2);
+  assert.equal(ok.content.at(-1).text, NATIVE_ONLY);
+  assert.match(NATIVE_ONLY, /no subagent tool/);
+  assert.match(NATIVE_ONLY, /Native/);
+  for (const [input, isError] of [[{ path: skill }, true], [{ path: "docs/writing-plans/SKILL.md.bak" }, false],
+                                  [{ path: skill.replace("writing-plans", "executing-plans") }, false]]) {
+    const other = await read(input, isError);
+    assert.notEqual(other?.content?.at(-1)?.text, NATIVE_ONLY);
+  }
+  assert.deepEqual(errors, []);
 });

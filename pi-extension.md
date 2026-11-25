@@ -34,6 +34,13 @@ brainstorming, without a Superpowers fork. It uses two Pi handlers:
 This removes pressure to use skills; it cannot guarantee the model’s choices.
 There is no skill-read gate or separate routing classifier.
 
+After a successful read of `writing-plans/SKILL.md`, the extension appends one
+line to the result: this session has no subagent tool, so the skill's Execution
+Handoff should offer and recommend Native execution only. The plan rewrite in
+`frozen-pytest-plans.ts` already drops `subagent-driven-development` from the
+plan header, but in a 2026-11-25 PyCharm run Pi's reply still recommended
+Subagent-driven execution.
+
 ### Activate or roll back
 
 The project configuration in `.pi/settings.json` uses portable relative paths.

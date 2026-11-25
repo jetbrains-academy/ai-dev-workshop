@@ -21,6 +21,12 @@ const HIDDEN = new Set([
 const TOOL_MAPPING_GUIDELINE =
   "Superpowers skills are written for several harnesses: load a skill by reading its SKILL.md at the listed location, use only the tools listed here, and when no subagent tool is listed do a plan's tasks yourself in this session, even if the plan names subagent-driven-development.";
 
+// writing-plans' Execution Handoff offers and may recommend Subagent-driven execution, which this
+// session cannot run (2026-11-25 PyCharm run). Pi reads the skill with the read tool, so the note
+// rides on that result.
+export const NATIVE_ONLY = "This Pi session has no subagent tool. In the Execution Handoff, offer Native execution " +
+  "only and recommend it; do not offer or recommend Subagent-driven.";
+
 type Message = ContextWithSystemEvent["messages"][number];
 
 function standaloneUserText(message: Message): string | undefined {
@@ -41,6 +47,13 @@ export default function superpowersUnbootstrap(pi: ExtensionAPI) {
     if (!guidelines.includes(TOOL_MAPPING_GUIDELINE)) {
       event.systemPromptOptions.promptGuidelines = [...guidelines, TOOL_MAPPING_GUIDELINE];
     }
+  });
+
+  pi.on("tool_result", (event) => {
+    const path = (event.input as { path?: unknown }).path;
+    if (event.toolName !== "read" || event.isError || typeof path !== "string") return;
+    if (!path.replace(/\\/g, "/").endsWith("/writing-plans/SKILL.md")) return;
+    return { content: [...event.content, { type: "text" as const, text: NATIVE_ONLY }] };
   });
 
   pi.on("context_with_system", (event, ctx) => {
