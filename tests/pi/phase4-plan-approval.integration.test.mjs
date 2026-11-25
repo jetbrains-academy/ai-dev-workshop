@@ -151,10 +151,15 @@ test("brainstorming and planning each get today's date once", async (context) =>
   await say(brainstorm);
   const first = dated(await start(brainstorm));
   assert.equal(first.length, 1);
-  assert.match(first[0].content, /YYYY-MM-DD-|docs\/superpowers\/specs\//);
+  assert.ok(first[0].content.includes(`docs/superpowers/specs/${today()}-`), first[0].content);
+  // Naming the plans folder while brainstorming led Pi to write a plan too (4 of 4 runs on 2026-11-25).
+  assert.doesNotMatch(first[0].content, /plans/);
   assert.equal(dated(await start("Skip the questions.")).length, 0);
   await say(planning);
-  assert.equal(dated(await start(planning)).length, 1);
+  const second = dated(await start(planning));
+  assert.equal(second.length, 1);
+  assert.ok(second[0].content.includes(`docs/superpowers/plans/${today()}-`), second[0].content);
+  assert.doesNotMatch(second[0].content, /specs/);
   assert.deepEqual(errors, []);
 });
 

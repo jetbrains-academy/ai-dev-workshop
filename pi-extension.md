@@ -138,7 +138,11 @@ read-only forms that are allowed: `ls`, `pwd`, `git status`, `date`, and plain
 Superpowers names specs and plans `YYYY-MM-DD-<name>.md`, but Pi's prompt has
 no date, so Mellum guessed: on 2026-11-25 it wrote `phase-4-design.md` and
 `2026-11-10-phase-4-design.md`. The first turn of the brainstorming and
-planning stages now carries today's date. If Pi still saves a new spec or plan
+planning stages now carries today's date, with only that stage's folder: the
+design file while brainstorming, the plan file while planning. A first version
+named both folders while brainstorming, and in 4 of 4 headless runs Pi then
+wrote a plan as well; that plan predated the planning prompt, so the approval
+stayed locked in 3 of them. If Pi still saves a new spec or plan
 without today's date, the guard renames the file at once, and the write's
 result names the new path. Files that existed when the stage began are left
 alone, and a rename never overwrites one of them.

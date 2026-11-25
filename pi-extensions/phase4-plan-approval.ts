@@ -46,8 +46,11 @@ export function datedName(filename: string, date: string): string {
   return `${date}-${filename.replace(/^\d{4}-\d{2}-\d{2}-/, "")}`;
 }
 
-const dateNote = (date: string) => `Today is ${date}. Name new files in docs/superpowers/specs/ and ` +
-  `docs/superpowers/plans/ as ${date}-<name>.md (the YYYY-MM-DD-<name>.md the skills ask for).`;
+// Each stage hears only its own folder: naming plans/ while brainstorming led Pi to write a plan
+// then too (4 of 4 runs, 2026-11-25), and that early plan kept approval locked.
+const dateNote = (date: string, stage: "design" | "planning") => stage === "design"
+  ? `Today is ${date}. Save the design as docs/superpowers/specs/${date}-<topic>-design.md.`
+  : `Today is ${date}. Save the plan as docs/superpowers/plans/${date}-<feature-name>.md.`;
 
 export interface PlanTask { number: number; title: string }
 export interface PlanProgress { started: Record<number, { brief: string; base: string }>; recorded: number[] }
@@ -242,7 +245,7 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     const state = entry?.data as Phase4State | undefined;
     if (!entry || !state || unlocked(state) || entry.id === datedStage) return;
     datedStage = entry.id;
-    return { message: { customType: "workshop-phase4-date", content: dateNote(today()), display: true } };
+    return { message: { customType: "workshop-phase4-date", content: dateNote(today(), state.status), display: true } };
   });
 
   pi.on("tool_result", (event, ctx) => {
