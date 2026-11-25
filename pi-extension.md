@@ -1,8 +1,8 @@
 # Local Pi extensions
 
 Phase 4 uses Superpowers with the automatic bootstrap filter, live-server
-guard, frozen pytest commands in plans, plan approval guard, and branch and
-finish guard.
+guard, a shell time limit, frozen pytest commands in plans, plan approval guard,
+and branch and finish guard.
 
 ## Superpowers skill over-triggering
 
@@ -39,7 +39,10 @@ line to the result: this session has no subagent tool, so the skill's Execution
 Handoff should offer and recommend Native execution only. The plan rewrite in
 `frozen-pytest-plans.ts` already drops `subagent-driven-development` from the
 plan header, but in a 2026-11-25 PyCharm run Pi's reply still recommended
-Subagent-driven execution.
+Subagent-driven execution. With the line in place, 3 of 8 headless runs on
+2026-11-25 still offered it, and one recommended it. The README's fallback, resending the planning
+prompt after `/skill:writing-plans`, expands the skill into the prompt instead
+of reading it, so that path gets no line.
 
 ### Activate or roll back
 
@@ -62,6 +65,7 @@ saved plans point at `executing-plans`.
   "extensions": [
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/no-live-server.ts",
+    "../pi-extensions/bash-timeout.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
     "../pi-extensions/phase4-plan-approval.ts",
     "../pi-extensions/keep-branch.ts"
@@ -175,6 +179,29 @@ before approval, after the finish prompt, or once every task is recorded. In the
 2026-11-25 PyCharm run, a compaction summary said Pi was still waiting to
 choose an execution approach. Pi then skipped the plan's last four tasks and
 coded against the grader.
+
+Headless checks on 2026-11-25 ran the README prompts at this setup 12 times (4,
+then 8). Pi loaded `executing-plans` in all 12, recorded every task in 10, and
+scored 12/12 with the grader unchanged in 11. Recorded is not the same as
+worked: only 6 of the 12 ran `task-start` and then `task-done` for every task in
+order, and one recorded three tasks in 13 seconds without editing anything.
+Most runs that scored 12/12 had read the grader and fixed their code against it.
+Following the plan costs time: median execution was 543 s, where one earlier
+run that skipped the plan finished in about 90 s, and 3 of the 8 took over 15
+minutes. The biggest losses came after approval, when the shell is open:
+`find /` or `find /Users` for the scripts or a missing test file took 2 to 7
+minutes each, in 2 of the 8 runs. The note gives the scripts' full path, but it
+is outside the project, and in one run Pi's reasoning said it needed them in the
+project instead. The shell time limit below now stops such searches. Others went on Pi's own new
+tests, which the grader guard does not cover, and on compactions of about a
+minute each. In the run that scored 8/12, Pi put the routes under `/reports/`,
+its own tests used the same paths, and every `task-done` passed.
+
+The tracking has known gaps. A shell command that chains `task-done` and
+`task-start` records only the first. Pi sometimes skips `task-start` or passes
+the wrong base, and the approval note can arrive twice. The line asking Pi to
+record work already committed once sent a run back over finished tasks, and in
+another let Pi record tasks it had not worked.
 
 [`keep-branch.ts`](pi-extensions/keep-branch.ts) blocks direct Git merge, pull,
 push, branch switch, and branch deletion commands through Pi’s `bash` tool.
@@ -307,8 +334,23 @@ five server starts and the one `curl`, and nothing else.
 
 It recognises commands by their spelling, so a new spelling can get past it. In
 the runs of 2026-11-22 and 2026-11-23 it blocked all 8 attempts to start the app
-(bare `uvicorn`, `python3 app.py`, `uv run python app.py`). A 60-second shell
-time limit added before it never fired once the guard was in place and has been
-removed.
+(bare `uvicorn`, `python3 app.py`, `uv run python app.py`).
+
+## A time limit for shell commands
+
+Pi's `bash` tool has no default timeout, so a command that never returns holds
+the turn until it ends. [`bash-timeout.ts`](pi-extensions/bash-timeout.ts) uses
+`tool_call` to give every `bash` call 30 seconds at most, keeping a shorter
+limit the model chose. When a command times out, the result adds a hint: search
+inside the project, take the executing-plans scripts from the full path in the
+Phase 4 plan note, and check the app through its tests rather than a server.
+
+A 60-second version was removed on 2026-11-23 because it never fired once the
+live-server guard was in place. It came back after the headless checks of
+2026-11-25: of 1,211 tool calls in 12 runs, only three shell commands took over
+12 seconds, all searches of the whole disk (2 to 7 minutes each), and the
+longest ordinary command took 11.5 seconds. A limit bounds any spelling of such
+a search, where a block would catch only the ones anticipated. How Mellum
+reacts to the hint has not been tried yet.
 
 Reference: [Pi extension events](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md).
