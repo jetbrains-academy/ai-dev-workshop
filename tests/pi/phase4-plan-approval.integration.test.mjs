@@ -163,39 +163,6 @@ test("brainstorming and planning each get today's date once", async (context) =>
   assert.deepEqual(errors, []);
 });
 
-test("a new plan without today's date is renamed, and rewriting the old name updates it", async (context) => {
-  const { cwd, errors, say, start, run } = await setupAll(context);
-  await writeFile(path.join(cwd, "docs/superpowers/plans/2026-11-06-old.md"), "# Old\n");
-  await say(planning);
-  await start(planning);
-  const undated = "docs/superpowers/plans/phase-4-plan.md";
-  const dated = `docs/superpowers/plans/${today()}-phase-4-plan.md`;
-  const result = await run("write", { path: undated, content: "# Plan\n\nRun: `pytest tests`\n" });
-  assert.equal(await exists(path.join(cwd, undated)), false);
-  assert.match(await readFile(path.join(cwd, dated), "utf8"), /uv run --frozen python -m pytest tests/);
-  assert.ok(texts(result).some((text) => /frozen pytest/.test(text)), "the plan rewrite's note is kept");
-  assert.ok(result.content.at(-1).text.includes(dated));
-  await run("write", { path: undated, content: "# Plan v2\n" });
-  assert.equal(await exists(path.join(cwd, undated)), false);
-  assert.equal(await readFile(path.join(cwd, dated), "utf8"), "# Plan v2\n");
-  await run("edit", { path: "docs/superpowers/plans/2026-11-06-old.md", edits: [{ oldText: "# Old", newText: "# Older" }] });
-  assert.equal(await exists(path.join(cwd, "docs/superpowers/plans/2026-11-06-old.md")), true);
-  assert.deepEqual(errors, []);
-});
-
-test("a misnamed spec is not renamed onto a file that predates the stage", async (context) => {
-  const { cwd, errors, say, start, run } = await setupAll(context);
-  const clash = `docs/superpowers/specs/${today()}-clash.md`;
-  await writeFile(path.join(cwd, clash), "# Earlier\n");
-  await say(brainstorm);
-  await start(brainstorm);
-  const result = await run("write", { path: "docs/superpowers/specs/clash.md", content: "# New\n" });
-  assert.equal(await readFile(path.join(cwd, clash), "utf8"), "# Earlier\n");
-  assert.equal(await exists(path.join(cwd, "docs/superpowers/specs/clash.md")), true);
-  assert.match(result.content.at(-1).text, /already exists/);
-  assert.deepEqual(errors, []);
-});
-
 const APPROVAL = "The plan looks good. Proceed with native execution.";
 const scripts = path.join(path.dirname(skills.find((skill) => skill.name === "executing-plans").filePath), "scripts");
 const twoTasks = "# Plan\n\n### Task 1: Model\n\n- [ ] step\n\n### Task 2: Routes\n\n- [ ] step\n";
@@ -384,46 +351,6 @@ test("a ledger left before approval does not count as progress", async (context)
   assert.match(run.sent[0].message.content, /Recorded: none yet/);
   assert.match(run.sent[0].message.content, /Next: Task 1\b/);
   assert.deepEqual(run.errors, []);
-});
-
-test("after approval, find, grep and ls outside the project are refused with the scripts' path", async (context) => {
-  const { cwd, call, errors } = await approvedRun(context);
-  const { homedir } = await import("node:os");
-  for (const [tool, input] of [
-    ["find", { pattern: "task-done", path: homedir() }],
-    ["find", { pattern: "task-start", path: "/" }],
-    ["grep", { pattern: "task-start", path: "~" }],
-    ["ls", { path: "../.." }],
-  ]) {
-    const decision = await call(tool, input);
-    assert.equal(decision?.block, true, `${tool} ${input.path}`);
-    assert.equal(decision.terminate, undefined, "a refused search does not end the turn");
-    assert.ok(decision.reason.startsWith(`Blocked just now: your \`${tool}\` call on \`${input.path}\`.`), decision.reason);
-    assert.ok(decision.reason.includes(`${scripts}/task-start`), decision.reason);
-    assert.match(decision.reason, /outside the project on purpose/);
-    assert.match(decision.reason, /does not exist yet: create it/);
-  }
-  for (const [tool, input] of [
-    ["find", { pattern: "*.py" }],
-    ["find", { pattern: "*.py", path: "tests" }],
-    ["grep", { pattern: "status", path: path.join(cwd, "docs") }],
-    ["ls", { path: "." }],
-    ["find", { pattern: "task-done", path: path.dirname(scripts) }],
-    ["grep", { pattern: "Task", path: path.dirname(path.dirname(scripts)) }],
-    ["read", { path: path.join(path.dirname(scripts), "SKILL.md") }],
-  ]) {
-    assert.equal((await call(tool, input))?.block, undefined, `${tool} ${input.path}`);
-  }
-  assert.deepEqual(errors, []);
-});
-
-test("before approval, searches outside the project are not this rule's business", async (context) => {
-  const { say, start, call, errors } = await setup(context);
-  await say(planning);
-  await start(planning);
-  assert.equal((await call("find", { pattern: "SKILL.md", path: path.dirname(scripts) }))?.block, undefined);
-  assert.equal((await call("find", { pattern: "x", path: "/" }))?.block, undefined);
-  assert.deepEqual(errors, []);
 });
 
 const compactEvent = (cwd) => ({

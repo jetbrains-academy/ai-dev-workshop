@@ -35,15 +35,13 @@ brainstorming, without a Superpowers fork. It uses two Pi handlers:
 This removes pressure to use skills; it cannot guarantee the model’s choices.
 There is no skill-read gate or separate routing classifier.
 
-After a successful read of `writing-plans/SKILL.md`, the extension appends one
-line to the result: this session has no subagent tool, so the skill's Execution
-Handoff should offer and recommend Native execution only. The plan rewrite in
-`frozen-pytest-plans.ts` already drops `subagent-driven-development` from the
-plan header, but in a 2026-11-25 PyCharm run Pi's reply still recommended
-Subagent-driven execution. With the line in place, 3 of 8 headless runs on
-2026-11-25 still offered it, and one recommended it. The README's fallback, resending the planning
-prompt after `/skill:writing-plans`, expands the skill into the prompt instead
-of reading it, so that path gets no line.
+`writing-plans`' Execution Handoff may still offer or recommend
+Subagent-driven execution. That only changes the reply's wording: the README's
+approval prompt starts with `/skill:executing-plans` and asks for native
+execution, and the plan rewrite in `frozen-pytest-plans.ts` points the plan
+header at `executing-plans`. A line appended to the skill's read result, asking
+Pi to offer only Native execution, was removed on 2026-11-25: 3 of 8 runs
+offered Subagent-driven anyway, and the choice never changed what ran.
 
 ### Activate or roll back
 
@@ -122,7 +120,11 @@ during execution.
 
 A FastAPI note appended to the Superpowers plan skills was trialled on
 2026-11-23 (8 Phase 4 runs with it, 8 without) and removed: both 404 checks
-passed in 8 runs against 7, and runs were about 25% slower.
+passed in 8 runs against 7, and runs were about 25% slower. The project skill
+`.pi/skills/fastapi/SKILL.md`, which `AGENTS.md` told Pi to read after approval,
+was removed on 2026-11-25 for the same reason: Pi read it in 15 of 27 headless
+runs, about 700 tokens each time, and those runs drew GET links or a broken
+route no less often than the 12 that did not.
 
 ### Phase 4 approval and finish
 
@@ -156,10 +158,9 @@ planning stages now carries today's date, with only that stage's folder: the
 design file while brainstorming, the plan file while planning. A first version
 named both folders while brainstorming, and in 4 of 4 headless runs Pi then
 wrote a plan as well; that plan predated the planning prompt, so the approval
-stayed locked in 3 of them. If Pi still saves a new spec or plan
-without today's date, the guard renames the file at once, and the write's
-result names the new path. Files that existed when the stage began are left
-alone, and a rename never overwrites one of them.
+stayed locked in 3 of them. With the note, every spec and plan in 27 headless
+runs carried today's date, so a backstop that renamed misnamed files never
+fired and was removed.
 
 The README's approval prompt starts with `/skill:executing-plans`, so the skill
 is part of the execution prompt; the guard strips that prefix before matching
@@ -211,17 +212,6 @@ project instead. The shell time limit below now stops such searches. Others went
 tests, which the grader guard does not cover, and on compactions of about a
 minute each. In the run that scored 8/12, Pi put the routes under `/reports/`,
 its own tests used the same paths, and every `task-done` passed.
-
-After approval the guard also keeps Pi's own `find`, `grep` and `ls` tools
-inside the project and the Superpowers skills folder. A search elsewhere, such
-as the home folder or `/`, is refused with the scripts' full path, a note that
-they are installed outside the project on purpose, and that a file the plan
-names but the project lacks does not exist yet. These tools are quick (the
-slowest call outside the project took 5.5 seconds in 16 runs), but searches of
-the home folder found other tools' cached copies of the Superpowers scripts,
-listed relative to the home folder so they looked like project paths, and fed
-the belief behind the slowest runs that the note's scripts were in the wrong
-place. Shell commands are left to the time limit.
 
 Three more parts of the guard act only during execution. When Pi compacts, the
 guard writes the summary itself from what it tracks (the plan, its tasks and

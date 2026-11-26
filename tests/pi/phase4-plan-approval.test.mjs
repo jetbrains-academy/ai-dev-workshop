@@ -21,13 +21,6 @@ test("today is the local date as YYYY-MM-DD", async () => {
   assert.equal(today(new Date(2026, 0, 31, 23, 59)), "2026-01-31");
 });
 
-test("datedName puts today's date in front, replacing a wrong one", async () => {
-  const { datedName } = await import("../../pi-extensions/phase4-plan-approval.ts");
-  assert.equal(datedName("phase-4-design.md", "2026-11-25"), "2026-11-25-phase-4-design.md");
-  assert.equal(datedName("2026-11-10-phase-4-design.md", "2026-11-25"), "2026-11-25-phase-4-design.md");
-  assert.equal(datedName("2026-11-25-phase-4-design.md", "2026-11-25"), "2026-11-25-phase-4-design.md");
-});
-
 test("planTasks reads the plan's task headings", async () => {
   const { planTasks } = await import("../../pi-extensions/phase4-plan-approval.ts");
   assert.deepEqual(planTasks("# P\n### Task 1: Model\n...\n### Task 2: Routes\nTask 9: not a heading\n"),

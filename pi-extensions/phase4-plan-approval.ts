@@ -1,8 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, readdirSync, readFileSync, realpathSync, renameSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import type { ContextEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const PLANS = "docs/superpowers/plans";
@@ -41,10 +40,6 @@ function refusal(toolName: string, input: Record<string, unknown>, stage: string
 export function today(now = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
-export function datedName(filename: string, date: string): string {
-  return `${date}-${filename.replace(/^\d{4}-\d{2}-\d{2}-/, "")}`;
 }
 
 // Each stage hears only its own folder: naming plans/ while brainstorming led Pi to write a plan
@@ -102,11 +97,9 @@ export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress
   ].join("\n");
 }
 
-// `existing` lists the specs and plans present at the stage prompt; only files Pi makes later are renamed.
-type Stage = { existing: string[] };
 type Phase4State =
-  | ({ status: "design" } & Stage)
-  | ({ status: "planning"; previousPlans: Record<string, string> } & Stage)
+  | { status: "design" }
+  | { status: "planning"; previousPlans: Record<string, string> }
   | { status: "approved"; plan?: string; progress?: PlanProgress; head?: string; staleLedger?: number[];
       approvedAt?: number; complete?: boolean }
   | { status: "finished" };
@@ -164,17 +157,6 @@ function savedPlans(cwd: string): Record<string, string> {
     const content = readFileSync(target, "utf8");
     return content.trim() ? [[relative(workspace, target), createHash("sha256").update(content).digest("hex")]] : [];
   }));
-}
-
-function existingArtifacts(cwd: string): string[] {
-  const workspace = realpathSync(cwd);
-  return ["specs", "plans"].flatMap((kind) => {
-    const directory = join(workspace, "docs/superpowers", kind);
-    if (!statIfPresent(directory)) return [];
-    return readdirSync(directory, { withFileTypes: true, recursive: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-      .map((entry) => relative(workspace, join(entry.parentPath, entry.name)));
-  });
 }
 
 // Tasks executing-plans' task-done recorded in this plan's ledger. The workspace directory name can be
@@ -271,42 +253,6 @@ function suitePasses(cwd: string): boolean {
   }
 }
 
-// After approval, Pi's own search tools stay inside the project. In headless runs on 2026-11-25,
-// searches of the home folder turned up other tools' cached copies of the Superpowers scripts,
-// reported relative to the home folder so they looked like project paths, and fed the belief
-// behind the slowest runs: that the scripts in the plan note were in the wrong place.
-const SEARCH_TOOLS = new Set(["find", "grep", "ls"]);
-
-function within(child: string, parent: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
-// The real path of the nearest part that exists, so a missing file under a symlinked folder
-// (macOS /var is /private/var) still compares equal to the project's real path.
-function realOrResolved(path: string): string {
-  const full = resolve(path);
-  try {
-    return realpathSync(full);
-  } catch {
-    const parent = dirname(full);
-    return parent === full ? full : join(realOrResolved(parent), basename(full));
-  }
-}
-
-export function outsideProject(cwd: string, path: unknown, allowed?: string): boolean {
-  if (typeof path !== "string" || path.trim() === "") return false;
-  const expanded = path === "~" || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
-  const target = realOrResolved(resolve(cwd, expanded));
-  if (within(target, realOrResolved(cwd))) return false;
-  return !(allowed && within(target, realOrResolved(allowed)));
-}
-
-export function searchInside(scripts: string): string {
-  return "While executing the plan, search inside the project. The task scripts are installed outside " +
-    `the project on purpose: run \`${scripts}/task-start\` and \`${scripts}/task-done\` as the plan note ` +
-    "writes them. A file the plan names that is not in the project does not exist yet: create it.";
-}
 
 export default function phase4PlanApproval(pi: ExtensionAPI) {
   let writingPlans: string | undefined;
@@ -331,26 +277,6 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     if (!entry || !state || unlocked(state) || entry.id === datedStage) return;
     datedStage = entry.id;
     return { message: { customType: "workshop-phase4-date", content: dateNote(today(), state.status), display: true } };
-  });
-
-  pi.on("tool_result", (event, ctx) => {
-    const state = stateFor(ctx);
-    if (!state || unlocked(state) || event.isError) return;
-    if (event.toolName !== "write" && event.toolName !== "edit") return;
-    const target = artifactPath(ctx.cwd, (event.input as { path?: unknown }).path);
-    if (!target || !statIfPresent(target)) return;
-    const workspace = realpathSync(ctx.cwd);
-    const from = relative(workspace, target);
-    const name = basename(target);
-    const wanted = datedName(name, today());
-    if (state.existing.includes(from) || wanted === name) return;
-    const destination = join(dirname(target), wanted);
-    const to = relative(workspace, destination);
-    const text = state.existing.includes(to)
-      ? `Left ${from} as named: ${to} already exists from before this stage.`
-      : `Renamed ${from} to ${to} to carry today's date; use ${to} from now on.`;
-    if (!state.existing.includes(to)) renameSync(target, destination);
-    return { content: [...event.content, { type: "text" as const, text }] };
   });
 
   // Track executing-plans' own scripts from their results: a printed brief and base start a task, a
@@ -436,12 +362,12 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     if (event.source !== "interactive" && event.source !== "rpc") return;
     const text = event.text.trim().replace(/^\/skill:(?:brainstorming|writing-plans|executing-plans)\s+/, "");
     if (/\bbrainstorm\b.*\bPhase 4\b/i.test(text)) {
-      pi.appendEntry<Phase4State>(ENTRY, { status: "design", existing: existingArtifacts(ctx.cwd) });
+      pi.appendEntry<Phase4State>(ENTRY, { status: "design" });
       return;
     }
     if (/\bPhase 4\b.*\b(?:plan|planning)\b|\b(?:plan|planning)\b.*\bPhase 4\b/i.test(text)) {
       pi.appendEntry<Phase4State>(ENTRY, {
-        status: "planning", previousPlans: savedPlans(ctx.cwd), existing: existingArtifacts(ctx.cwd),
+        status: "planning", previousPlans: savedPlans(ctx.cwd),
       });
       return;
     }
@@ -479,13 +405,6 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
       const command = (event.input as { command?: unknown }).command;
       const git = event.toolName === "bash" && typeof command === "string" && /^\s*git\b/.test(command);
       if (!git) return { block: true, reason: `${blockedCall(event.toolName, event.input as Record<string, unknown>)} ${ALL_DONE}`, terminate: true };
-    }
-    if (state?.status === "approved" && SEARCH_TOOLS.has(event.toolName)) {
-      const input = event.input as Record<string, unknown>;
-      const skillsRoot = executingPlans ? dirname(dirname(executingPlans)) : undefined;
-      if (outsideProject(ctx.cwd, input.path, skillsRoot)) {
-        return { block: true, reason: `${blockedCall(event.toolName, input)} ${searchInside(scriptsDir())}` };
-      }
     }
     if (!state || unlocked(state) || READ_TOOLS.has(event.toolName)) return;
     if ((event.toolName === "write" || event.toolName === "edit") && artifactPath(ctx.cwd, event.input.path)) return;
