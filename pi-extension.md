@@ -5,6 +5,22 @@ drops old thinking from requests, live-server guard, a shell time limit, frozen
 pytest commands in plans and bare `python` in shell commands, plan approval
 guard, and branch and finish guard.
 
+## Frozen for the demo (2026-11-26)
+
+This setup is frozen at commit `e94c199`. In its 8-run check (temperature 1, thinking high, 60k context), 2 runs
+broke the demo, the median execution was 324 s, and 7 of 8 scored 12/12. Over 47 runs graded the same way since
+2026-11-25, about 1 in 4 broke the demo, each time for a different reason, so no further extension changes are
+planned. For the live demo: rehearse with a cutoff of about 15 minutes for the execution turn, and keep a recorded
+run to fall back on.
+
+Known and accepted:
+- plans with no `Task N` heading at all;
+- failed-edit loops, where the old text comes from memory;
+- the done signal often ending the turn without a written report;
+- runs with no commits.
+
+The run evidence is outside the repo, in `../ai-dev-workshop-mellum-evidence/plan-fix-n8/`.
+
 ## Superpowers skill over-triggering
 
 Ordinary requests can trigger unnecessary Superpowers workflows. Its Pi
