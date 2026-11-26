@@ -15,11 +15,17 @@ run to fall back on.
 
 Known and accepted:
 - plans with no `Task N` heading at all;
-- failed-edit loops, where the old text comes from memory;
+- failed-edit loops: in the one that broke a run, the file had a stray backslash (`\"`) that Pi left out of every
+  edit's old text, even right after reading the file;
 - the done signal often ending the turn without a written report;
 - runs with no commits.
 
 The run evidence is outside the repo, in `../ai-dev-workshop-mellum-evidence/plan-fix-n8/`.
+
+On 2026-11-26 the Phase 4 grader, `tests/phase4_acceptance.py`, was taken out of the repo so the workshop carries no
+Phase 4 answer key; the finish prompt now runs only the test suite. The numbers above come from runs where Pi could
+read the grader, and the setup without it has not been checked yet. The grader is kept for scoring runs in
+`../ai-dev-workshop-mellum-evidence/grader/`.
 
 ## Superpowers skill over-triggering
 
@@ -118,18 +124,7 @@ server start, as the live-server guard recognises it, becomes
 `uv run --frozen python -m pytest tests`, unless the words just before it forbid
 it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
 Python code blocks stay as written.
-Plan steps that would create, modify or `git add` the grader,
-`tests/phase4_acceptance.py`, are pointed at `tests/test_phase4.py`, and so are
-task and step headings that ask to create, update, write or add to the grader by
-its bare name ("Step 1: Create phase4_acceptance.py test file"). A task's `Test:` line that
-names the grader, and a single grader test such as
-`pytest tests/phase4_acceptance.py::test_resolve_route`, go to `tests/test_phase4.py` too, so each
-task tests its own work; a run of the whole grader file keeps it, since that is the
-final check. In the final check on 2026-11-25 such a plan cost two of the three
-turn-limit runs: one named a grader test that does not exist and Pi read the grader
-25 times looking for it, and one gave a task `Test: tests/phase4_acceptance.py` and
-spent 4.5 minutes in the grader hunting for a test to run (8 of 41 executed runs had
-such a plan). A route path written the Flask way, `/<int:id>` or `/<id>`, becomes
+A route path written the Flask way, `/<int:id>` or `/<id>`, becomes
 `/{id}`, and the note says that FastAPI path parameters are written `{id}`: a
 `<int:id>` route never matches, and in the two runs whose plan had one and Pi copied
 it into `app.py`, Pi spent 10 and 30 minutes on probes without seeing why every request
@@ -137,9 +132,7 @@ answered 404. The removed FastAPI skill said `{id}` too, but Pi read it only aft
 plan was approved, and the run that read it still kept the Flask path. A plan with no `Task N` headings but two or more numbered
 ones (`### 1. Update Complaint Model`) gets "Task" added, because
 `executing-plans`' `task-start` finds tasks by "Task N": in 3 of 11 runs on
-2026-11-25 such a plan cost 200 to 470 seconds or was skipped. In 6 of 20 plans saved on 2026-11-25 such a heading
-survived, and in one run Pi took the grader as its own deliverable and tried to
-edit it instead of fixing its code. It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
+2026-11-25 such a plan cost 200 to 470 seconds or was skipped. It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
 alone, because the `subagent-driven-development` skill it recommends is about
 7,000 tokens and this session has no subagent tool. The tool result reports each
 correction. In 7 of 17 saved plans Mellum wrote a
@@ -269,20 +262,9 @@ mention `roadmap.md` are not checked. An earlier version let the model mark the
 phase done after both exact checks passed; in one run it refused seven attempts
 over three minutes because the model had run the grader with `-v` added.
 
-The guard also keeps the grader, `tests/phase4_acceptance.py`, as shipped: a
-`write` or `edit` to it is refused, and a shell command that changes it is
-rolled back. The refusal sends the model to a new file, `tests/test_phase4.py`,
-for its own tests. In the 2026-11-23 trials models weakened the grader in 3 of 28
-runs, and the finish prompt marked two of them done; in a later run a plan step
-to "update" the grader led to 12 refusals over about four minutes. The extension pins the
-grader's SHA-256; `tests/pi/grader-pin.test.mjs` fails if the file changes
-without the pin.
-
-When you send the README’s finish prompt, the extension first checks the
-grader against that pin and refuses to finish if it differs. Then it runs both
-commands itself. If both pass and the implementation stays the same during the checks,
-Pi marks Phase 4 done in `specs/roadmap.md` and reports the results without
-starting a model turn. If a check fails, Pi reports the failure and leaves the
+When you send the README’s finish prompt, the extension runs
+`uv run --frozen python -m pytest tests` itself. If it passes and the implementation stays the same during the
+check, Pi marks Phase 4 done in `specs/roadmap.md` and reports the result without starting a model turn. If a check fails, Pi reports the failure and leaves the
 roadmap heading as it was.
 
 ### Verification

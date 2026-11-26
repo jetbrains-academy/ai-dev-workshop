@@ -42,7 +42,6 @@ test("workshop Pi keeps its branch while allowing ordinary Git work", async (con
 });
 
 const suite = "uv run --frozen python -m pytest tests";
-const grader = "uv run --frozen python -m pytest -v --tb=line --disable-warnings tests/phase4_acceptance.py";
 const pending = "## Phase 4 — Resolve and Reopen";
 const done = pending + " (Done)";
 
@@ -92,21 +91,19 @@ test("only the finish prompt marks Phase 4 done; model changes are refused or ro
   assert.equal((await readFile(roadmap, "utf8")).split("\n")[0], pending);
 
   await shell(suite);
-  await shell(grader);
-  assert.equal((await mark())?.block, true, "passing checks do not let the model mark it done");
+  assert.equal((await mark())?.block, true, "a passing suite does not let the model mark it done");
   assert.deepEqual(errors, []);
 });
 
-test("the Phase 4 grader stays as shipped: edits are refused, shell changes rolled back, finish checks it", async (context) => {
-  const project = await mkdtemp(path.join(tmpdir(), "pi-phase4-grader-"));
+test("the finish prompt runs the test suite and marks Phase 4 done when it passes", async (context) => {
+  const project = await mkdtemp(path.join(tmpdir(), "pi-phase4-finish-"));
   context.after(() => rm(project, { recursive: true, force: true }));
   execFileSync("git", ["init", "-q"], { cwd: project });
   await mkdir(path.join(project, "specs"));
   await mkdir(path.join(project, "tests"));
+  for (const file of ["pyproject.toml", "uv.lock"]) await writeFile(path.join(project, file), await readFile(path.join(cwd, file)));
   await writeFile(path.join(project, "specs/roadmap.md"), pending + "\n");
-  const grader = path.join(project, "tests/phase4_acceptance.py");
-  const shipped = await readFile(new URL("../phase4_acceptance.py", import.meta.url), "utf8");
-  await writeFile(grader, shipped);
+  const check = path.join(project, "tests/test_check.py");
 
   const extensions = settings.extensions.map((entry) => fileURLToPath(new URL(entry, settingsPath)));
   const loaded = await sdk.discoverAndLoadExtensions(extensions, project, project);
@@ -116,36 +113,19 @@ test("the Phase 4 grader stays as shipped: edits are refused, shell changes roll
   const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, project, sdk.SessionManager.inMemory(project), undefined);
   const errors = [];
   runner.onError((error) => errors.push(error));
-  const call = (toolName, input) => runner.emitToolCall({ type: "tool_call", toolCallId: "call", toolName, input });
-  const result = (toolName, input) => runner.emitToolResult({
-    type: "tool_result", toolCallId: "call", toolName, input, isError: false, content: [],
-  });
+  const finish = () => runner.emitInput("Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.", undefined, "rpc");
 
-  for (const [toolName, input] of [
-    ["edit", { path: "tests/phase4_acceptance.py", edits: [{ oldText: '"Open" in', newText: '"open" in' }] }],
-    ["write", { path: grader, content: "def test_nothing():\n    pass\n" }],
-  ]) {
-    const refused = await call(toolName, input);
-    assert.equal(refused?.block, true, toolName);
-    assert.match(refused.reason, /grader/i);
-    assert.match(refused.reason, /tests\/test_phase4\.py/);
-  }
-  assert.equal((await call("read", { path: "tests/phase4_acceptance.py" }))?.block, undefined);
-  assert.equal((await call("edit", { path: "tests/test_board.py", edits: [{ oldText: "a", newText: "b" }] }))?.block, undefined);
-
-  const weaken = { command: "sed -i '' 's/\"Open\" in/\"open\" in/' tests/phase4_acceptance.py" };
-  assert.equal((await call("bash", weaken))?.block, undefined);
-  await sdk.createBashTool(project).execute("call", weaken, undefined, undefined);
-  const rolledBack = await result("bash", weaken);
-  assert.equal(rolledBack?.isError, true);
-  assert.match(rolledBack.content.at(-1).text, /grader/i);
-  assert.equal(await readFile(grader, "utf8"), shipped);
-
-  await writeFile(grader, shipped.replace('"Open" in', '"open" in'));
-  await runner.emitInput("Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.", undefined, "rpc");
+  await writeFile(check, "def test_check():\n    assert False\n");
+  await finish();
   assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].details.checks.map((c) => c.command), [suite]);
   assert.equal(sent[0].details.markedDone, false);
-  assert.match(sent[0].content, /phase4_acceptance\.py/);
   assert.equal(await readFile(path.join(project, "specs/roadmap.md"), "utf8"), pending + "\n");
+
+  await writeFile(check, "def test_check():\n    assert True\n");
+  await finish();
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1].details.markedDone, true, sent[1].content);
+  assert.equal(await readFile(path.join(project, "specs/roadmap.md"), "utf8"), done + "\n");
   assert.deepEqual(errors, []);
 });

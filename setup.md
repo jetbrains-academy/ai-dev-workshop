@@ -40,12 +40,31 @@
         "api": "openai-completions",
         "apiKey": "lm-studio",
         "models": [
-          { "id": "mellum2.1-12b-a2.5b-thinking", "contextWindow": 60000 }
+          {
+            "id": "mellum2.1-12b-a2.5b-thinking",
+            "reasoning": true,
+            "contextWindow": 60000,
+            "maxTokens": 16384,
+            "samplingParams": {
+              "temperature": 1,
+              "top_p": 0.95,
+              "top_k": 20,
+              "min_p": 0,
+              "repetition_penalty": 1,
+              "presence_penalty": 0
+            },
+            "compat": {
+              "supportsDeveloperRole": false,
+              "supportsReasoningEffort": false,
+              "maxTokensField": "max_tokens",
+              "thinkingFormat": "qwen-chat-template"
+            }
+          }
         ]
       }
     }
   }
   ```
-  `contextWindow` must match the LM Studio context length. Pi assumes 128K when it is missing and then compacts too late.
+  Use the model id LM Studio shows for the model you downloaded. `contextWindow` must match the LM Studio context length: Pi assumes 128K when it is missing and then compacts too late. `"reasoning": true` lets Pi turn Mellum's thinking on; without it Pi treats the model as non-thinking and keeps thinking off. After selecting the model in Pi, set the thinking level to High.
 - The Superpowers skill can be used from `.agents/skills` — no explicit installation is required
 - This repository also contains a few tricks based on the [Satyrn AI Project](https://satyrn.ai/)

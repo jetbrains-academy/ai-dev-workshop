@@ -64,14 +64,13 @@ project layout are in this folder.
 
 ### Phase 4 verification and finish
 
-Run both commands separately before finishing Phase 4 or marking it done.
+Run the test suite before finishing Phase 4 or marking it done.
 
 ```sh
 uv run --frozen python -m pytest tests
-uv run --frozen python -m pytest -v --tb=line --disable-warnings tests/phase4_acceptance.py
 ```
 
-Fix failures in the implementation or its tests, rerun both checks, and report
-the results. Keep the grader unchanged.
+Fix failures in the implementation or its tests, rerun the suite, and report
+the results.
 
-The README finish prompt runs both checks and marks Phase 4 done when they pass. Keep the current branch as-is and leave its commits on that branch.
+The README finish prompt runs the suite and marks Phase 4 done when it passes. Keep the current branch as-is and leave its commits on that branch.

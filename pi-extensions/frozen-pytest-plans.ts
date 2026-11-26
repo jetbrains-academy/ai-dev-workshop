@@ -18,42 +18,6 @@ export interface FrozenPlan {
   serverStarts: number;
 }
 
-const GRADER = "tests/phase4_acceptance.py";
-const OWN_TESTS = "tests/test_phase4.py";
-
-const GRADER_NAME = "phase4_acceptance.py";
-const OWN_NAME = "test_phase4.py";
-// A task or step heading that asks to change the grader by its bare name. In a 2026-11-25 run
-// "Step 1: Create phase4_acceptance.py test file" survived the Files-line rewrite, and Pi took
-// the grader as its own deliverable and tried to edit it.
-const HEADING_CHANGE = /^\s*(?:#{1,6}\s|[-*+]\s+(?:\[[ xX]\]\s+)?\*\*)[^\n]*\b(?:create|update|modify|write|edit|extend|change|add)\b/i;
-
-// A single grader test named as a step's check: "pytest tests/phase4_acceptance.py::test_resolve_route". In the
-// final n=8 check on 2026-11-25, run 7's plan named one "(to be created)" that the grader does not have, and Pi read
-// the grader 25 times looking for it. A whole-file grader run is the real final check and is left alone.
-const GRADER_NODE = /\b((?:tests\/)?)phase4_acceptance\.py::/g;
-
-/**
- * Plan steps that would create, modify or stage the grader, or that test a task with it, go to the model's own test
- * file instead. Run 4 of the same check had "- Test: `tests/phase4_acceptance.py`" on a task and spent 4.5 minutes
- * in the grader hunting for a test to run.
- */
-export function redirectGraderEdits(markdown: string): { markdown: string; redirected: number } {
-  let redirected = 0;
-  const lines = markdown.split("\n").map((line) => {
-    let out = line;
-    const changes = /^\s*(?:[-*+]\s+)?(?:\*\*)?(?:modify|create|test):/i.test(line) || /\bgit[ \t]+add\b/.test(line);
-    if (changes) out = out.replaceAll(GRADER, OWN_TESTS);
-    else if (HEADING_CHANGE.test(line) && line.includes(GRADER_NAME) && !/\bpytest\b/.test(line)) {
-      out = out.replaceAll(GRADER, OWN_TESTS).replaceAll(GRADER_NAME, OWN_NAME);
-    }
-    out = out.replace(GRADER_NODE, (_match, folder: string) => `${folder}${OWN_NAME}::`);
-    if (out !== line) redirected += 1;
-    return out;
-  });
-  return { markdown: lines.join("\n"), redirected };
-}
-
 // Flask writes a path parameter "/<int:id>"; FastAPI writes "/{id}", and a "<int:id>" route never matches. In the
 // final n=8 check on 2026-11-25, run 1's plan had "@app.route('/complaints/<int:id>/resolve', ...)"; Pi copied the
 // path into app.py and spent 30 minutes on probes without seeing it. Thinking-filter run 4 did the same.
@@ -185,15 +149,12 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
     }
     const corrected: string[] = [];
     let serverStarts = 0;
-    let graderSteps = 0;
     let taskSteps = 0;
     let pathLines = 0;
     for (const [path, content] of changed) {
       const headed = taskHeadings(content);
-      const kept = redirectGraderEdits(nativePlanHeader(headed.markdown));
-      const paths = fastapiPaths(kept.markdown);
+      const paths = fastapiPaths(nativePlanHeader(headed.markdown));
       const frozen = freezePlanCommands(paths.markdown);
-      graderSteps += kept.redirected;
       taskSteps += headed.renamed;
       pathLines += paths.rewritten;
       if (frozen.markdown === content) continue;
@@ -207,10 +168,6 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
     if (serverStarts) {
       text += ` Replaced ${serverStarts} server start${serverStarts === 1 ? "" : "s"} with \`${TEST_SUITE}\`: ` +
         "check routes in process with `TestClient(app)` and `follow_redirects=False`, not a live server.";
-    }
-    if (graderSteps) {
-      text += ` Pointed ${graderSteps} plan step${graderSteps === 1 ? "" : "s"} that changed or tested with ${GRADER} at ` +
-        `${OWN_TESTS}: each task tests its work there, and the grader stays as shipped and runs at the finish.`;
     }
     if (pathLines) {
       text += ` Wrote the route paths on ${pathLines} plan line${pathLines === 1 ? "" : "s"} with \`{id}\`: FastAPI path ` +
