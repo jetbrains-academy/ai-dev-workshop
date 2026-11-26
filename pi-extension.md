@@ -29,27 +29,33 @@ An extension whose key is missing does nothing. Superpowers' own conventions (`d
 executing-plans scripts, `Task N` headings) stay built in. The Flask-to-FastAPI route rewrite was removed: it fixed
 a mistake in the model's code for one stack, which the config cannot express without encoding the answer.
 
-## Frozen for the demo (2026-11-26)
+## Frozen for the demo (2026-11-26, second freeze)
 
-This setup is frozen at commit `e94c199`. In its 8-run check (temperature 1, thinking high, 60k context), 2 runs
-broke the demo, the median execution was 324 s, and 7 of 8 scored 12/12. Over 47 runs graded the same way since
-2026-11-25, about 1 in 4 broke the demo, each time for a different reason, so no further extension changes are
-planned. For the live demo: rehearse with a cutoff of about 15 minutes for the execution turn, and keep a recorded
-run to fall back on.
+The extensions are frozen as of commit `f71e606` (project config, no grader in the repo); the only later change is the
+roadmap's card bullet, which now names the button for each status. No more extension changes, `AGENTS.md` lines or
+headless batches are planned: over 51 graded runs about 1 in 4 broke the demo, each time for a different rare reason,
+and batches of 4 to 8 runs cannot show a fix working.
+
+The last check (4 runs at `f71e606`, grader added only after each run): median execution 163 s, 1 CLEAN, 2 FLAWED,
+1 BREAK, 12/12 in 1 of 4. All three misses broke the card bullet (links instead of POST forms, lowercase status,
+swapped buttons), and Phase 4 was marked done in all four, because the finish check runs only the model's own tests.
+Evidence: `../ai-dev-workshop-mellum-evidence/config-n4/`; the grader is kept for scoring in `../grader/` there.
+
+For the live demo:
+- Start Phase 4 from the repo's own Phase 3, which every trial used. Phase 4 on an attendee's own Phase 2 and 3 code
+  is best-effort.
+- Read the saved plan aloud before approving it. If it has no `Task N` headings, send the planning prompt once more.
+- After execution, open the board and click Resolve and Reopen yourself. If something is wrong, send one plain review
+  note, such as "Resolve must be a POST form, not a link." The human review is the acceptance check.
+- Keep a stopwatch on the execution turn. Good runs take 2 to 8 minutes; past 8 minutes, say so and switch to the
+  recorded run.
+- Rehearse twice interactively with these steps, record both, and keep the cleaner one as the fallback.
 
 Known and accepted:
 - plans with no `Task N` heading at all;
-- failed-edit loops: in the one that broke a run, the file had a stray backslash (`\"`) that Pi left out of every
-  edit's old text, even right after reading the file;
+- failed-edit loops, often from a backslash that Pi cannot write back into an edit's old text;
 - the done signal often ending the turn without a written report;
-- runs with no commits.
-
-The run evidence is outside the repo, in `../ai-dev-workshop-mellum-evidence/plan-fix-n8/`.
-
-On 2026-11-26 the Phase 4 grader, `tests/phase4_acceptance.py`, was taken out of the repo so the workshop carries no
-Phase 4 answer key; the finish prompt now runs only the test suite. The numbers above come from runs where Pi could
-read the grader, and the setup without it has not been checked yet. The grader is kept for scoring runs in
-`../ai-dev-workshop-mellum-evidence/grader/`.
+- runs with no commits, or with design and plan files left uncommitted.
 
 ## Superpowers skill over-triggering
 

@@ -55,7 +55,7 @@ project layout are in this folder.
 **Acceptance.**
 
 - `Complaint` adds `status: str`, which starts as `open`. Resolve and Reopen use the stable ids already assigned in Phase 3.
-- Each card shows `Open` or `Resolved` and a button that posts to its route.
+- Each card shows `Open` with a `Resolve` button, or `Resolved` with a `Reopen` button, in a form that posts to its route.
 - `POST /complaints/{id}/resolve` marks that complaint resolved and answers 303 with `Location: /complaints`; the board then shows `Resolved`.
 - `POST /complaints/{id}/reopen` marks it open and answers the same way.
 - Either route answers 404 for an id no complaint has.
