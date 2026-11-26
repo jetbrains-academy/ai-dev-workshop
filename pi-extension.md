@@ -105,8 +105,20 @@ Python code blocks stay as written.
 Plan steps that would create, modify or `git add` the grader,
 `tests/phase4_acceptance.py`, are pointed at `tests/test_phase4.py`, and so are
 task and step headings that ask to create, update, write or add to the grader by
-its bare name ("Step 1: Create phase4_acceptance.py test file"); steps that only
-run the grader keep it. A plan with no `Task N` headings but two or more numbered
+its bare name ("Step 1: Create phase4_acceptance.py test file"). A task's `Test:` line that
+names the grader, and a single grader test such as
+`pytest tests/phase4_acceptance.py::test_resolve_route`, go to `tests/test_phase4.py` too, so each
+task tests its own work; a run of the whole grader file keeps it, since that is the
+final check. In the final check on 2026-11-25 such a plan cost two of the three
+turn-limit runs: one named a grader test that does not exist and Pi read the grader
+25 times looking for it, and one gave a task `Test: tests/phase4_acceptance.py` and
+spent 4.5 minutes in the grader hunting for a test to run (8 of 41 executed runs had
+such a plan). A route path written the Flask way, `/<int:id>` or `/<id>`, becomes
+`/{id}`, and the note says that FastAPI path parameters are written `{id}`: a
+`<int:id>` route never matches, and in the two runs whose plan had one and Pi copied
+it into `app.py`, Pi spent 10 and 30 minutes on probes without seeing why every request
+answered 404. The removed FastAPI skill said `{id}` too, but Pi read it only after the
+plan was approved, and the run that read it still kept the Flask path. A plan with no `Task N` headings but two or more numbered
 ones (`### 1. Update Complaint Model`) gets "Task" added, because
 `executing-plans`' `task-start` finds tasks by "Task N": in 3 of 11 runs on
 2026-11-25 such a plan cost 200 to 470 seconds or was skipped. In 6 of 20 plans saved on 2026-11-25 such a heading

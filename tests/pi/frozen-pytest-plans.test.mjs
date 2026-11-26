@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { freezePlanCommands, nativePlanHeader, redirectGraderEdits } from "../../pi-extensions/frozen-pytest-plans.ts";
+import { fastapiPaths, freezePlanCommands, nativePlanHeader, redirectGraderEdits } from "../../pi-extensions/frozen-pytest-plans.ts";
 
 const SUITE = "uv run --frozen python -m pytest tests";
 const lines = (...parts) => parts.join("\n");
@@ -103,13 +103,13 @@ test("points plan steps that change the grader at a new test file", () => {
       "**Files:**",
       "- Modify: `tests/test_phase4.py`",
       "- Create: tests/test_phase4.py",
-      "- Test: `tests/phase4_acceptance.py::test_unknown_id_returns_404`",
+      "- Test: `tests/test_phase4.py::test_unknown_id_returns_404`",
       "- [ ] **Step 1: Create test_phase4.py test file**",
       "- [ ] **Step 2: Run phase4_acceptance.py to verify it passes**",
       "Run: `uv run --frozen python -m pytest tests/phase4_acceptance.py`",
       "```bash", "git add tests/test_phase4.py app.py", "```",
     ),
-    redirected: 5,
+    redirected: 6,
   });
   const once = redirectGraderEdits(plan).markdown;
   assert.deepEqual(redirectGraderEdits(once), { markdown: once, redirected: 0 });
@@ -129,4 +129,56 @@ test("numbered plan headings without Task become Task headings", async () => {
   const once = taskHeadings(plan).markdown;
   assert.deepEqual(taskHeadings(once), { markdown: once, renamed: 0 });
   assert.deepEqual(taskHeadings("### 1. Only one"), { markdown: "### 1. Only one", renamed: 0 }, "one numbered heading is not a task list");
+});
+
+test("points a task's own tests and single grader tests at the model's test file", () => {
+  // Final n=8 run 7 (2026-11-25): "Run: `... pytest tests/phase4_acceptance.py::test_resolve_route` (to be created)"
+  // named a grader test that does not exist; run 4's Task 2 had "- Test: `tests/phase4_acceptance.py`".
+  const plan = lines(
+    "- Test: `tests/phase4_acceptance.py`",
+    "**Test:** tests/phase4_acceptance.py (or new test file)",
+    "  - Run: `uv run --frozen python -m pytest tests/phase4_acceptance.py::test_resolve_route` (to be created)",
+    "Run `pytest phase4_acceptance.py::test_x -v`",
+    "Run: `uv run --frozen python -m pytest -v tests/phase4_acceptance.py`",
+    "The grader `tests/phase4_acceptance.py` runs at the finish.",
+  );
+  assert.deepEqual(redirectGraderEdits(plan), {
+    markdown: lines(
+      "- Test: `tests/test_phase4.py`",
+      "**Test:** tests/test_phase4.py (or new test file)",
+      "  - Run: `uv run --frozen python -m pytest tests/test_phase4.py::test_resolve_route` (to be created)",
+      "Run `pytest test_phase4.py::test_x -v`",
+      "Run: `uv run --frozen python -m pytest -v tests/phase4_acceptance.py`",
+      "The grader `tests/phase4_acceptance.py` runs at the finish.",
+    ),
+    redirected: 4,
+  });
+  const once = redirectGraderEdits(plan).markdown;
+  assert.deepEqual(redirectGraderEdits(once), { markdown: once, redirected: 0 });
+});
+
+test("writes Flask-style path parameters the FastAPI way", () => {
+  // Final n=8 run 1 (2026-11-25): the plan had "@app.route('/complaints/<int:id>/resolve', methods=['POST'])";
+  // the route never matched, and Pi spent 30 minutes on probes.
+  const plan = lines(
+    "@app.route('/complaints/<int:id>/resolve', methods=['POST'])",
+    '@app.post("/complaints/<int:complaint_id>/reopen")',
+    "POST /complaints/<id>/resolve redirects to /complaints.",
+    '@app.post("/complaints/{id}/resolve")',
+    "<form method=\"post\" action=\"/complaints/{{ c.id }}/resolve\"><button>Resolve</button></form>",
+    "if a < b and c > d: pass",
+  );
+  assert.deepEqual(fastapiPaths(plan), {
+    markdown: lines(
+      "@app.route('/complaints/{id}/resolve', methods=['POST'])",
+      '@app.post("/complaints/{complaint_id}/reopen")',
+      "POST /complaints/{id}/resolve redirects to /complaints.",
+      '@app.post("/complaints/{id}/resolve")',
+      "<form method=\"post\" action=\"/complaints/{{ c.id }}/resolve\"><button>Resolve</button></form>",
+      "if a < b and c > d: pass",
+    ),
+    rewritten: 3,
+  });
+  const once = fastapiPaths(plan).markdown;
+  assert.deepEqual(fastapiPaths(once), { markdown: once, rewritten: 0 });
 });
