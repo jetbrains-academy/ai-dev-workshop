@@ -2,7 +2,8 @@
 
 Phase 4 uses Superpowers with the automatic bootstrap filter, a filter that
 drops old thinking from requests, live-server guard, a shell time limit, frozen
-pytest commands in plans, plan approval guard, and branch and finish guard.
+pytest commands in plans and bare `python` in shell commands, plan approval
+guard, and branch and finish guard.
 
 ## Superpowers skill over-triggering
 
@@ -67,6 +68,7 @@ saved plans point at `executing-plans`.
     "../pi-extensions/drop-old-thinking.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/bash-timeout.ts",
+    "../pi-extensions/frozen-python.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
     "../pi-extensions/phase4-plan-approval.ts",
     "../pi-extensions/keep-branch.ts"
@@ -106,7 +108,10 @@ Plan steps that would create, modify or `git add` the grader,
 `tests/phase4_acceptance.py`, are pointed at `tests/test_phase4.py`, and so are
 task and step headings that ask to create, update, write or add to the grader by
 its bare name ("Step 1: Create phase4_acceptance.py test file"); steps that only
-run the grader keep it. In 6 of 20 plans saved on 2026-11-25 such a heading
+run the grader keep it. A plan with no `Task N` headings but two or more numbered
+ones (`### 1. Update Complaint Model`) gets "Task" added, because
+`executing-plans`' `task-start` finds tasks by "Task N": in 3 of 11 runs on
+2026-11-25 such a plan cost 200 to 470 seconds or was skipped. In 6 of 20 plans saved on 2026-11-25 such a heading
 survived, and in one run Pi took the grader as its own deliverable and tried to
 edit it instead of fixing its code. It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
 alone, because the `subagent-driven-development` skill it recommends is about
@@ -218,6 +223,17 @@ listed relative to the home folder so they looked like project paths, and fed
 the belief behind the slowest runs that the note's scripts were in the wrong
 place. Shell commands are left to the time limit.
 
+Three more parts of the guard act only during execution. When Pi compacts, the
+guard writes the summary itself from what it tracks (the plan, its tasks and
+progress, uncommitted changes, files read and changed), so a compaction makes no
+model call; Mellum's summaries took a median 64 seconds, mostly thinking, and
+two hit the output cap after about three minutes. Planning-stage tool results
+longer than 200 characters, mostly skill text, are replaced by a short stub in
+each request; the call and its result keep their place. And when `task-done`
+records the plan's last task, the guard runs the full suite; if it passes, the
+next tool call other than `git` is refused and ends the turn, so Pi reports
+instead of polishing (four runs spent 135 to 322 seconds after that point).
+
 The tracking has known gaps. A shell command that chains `task-done` and
 `task-start` records only the first. Pi sometimes skips `task-start` or passes
 the wrong base, and the approval note can arrive twice.
@@ -325,6 +341,17 @@ raw input and output were logged for every request.
   POST forms).
 - **Settings:** temperature stays 1; 0.6 is a fallback if JSON errors appear.
   Context length is 60,000, so Pi compacts near 43,600 tokens.
+
+## Bare python in shell commands
+
+The sandboxed shell has no bare `python`, and `python3` is the system one
+without the project's packages: in 27 headless runs `python: command not found`
+came up 15 times, and one run went on to `pip install fastapi`.
+[`frozen-python.ts`](pi-extensions/frozen-python.ts) rewrites a shell segment
+whose command word is `python`, `python3` or `python3.N` to
+`uv run --frozen python` before it runs. Commands that already name an
+interpreter (`uv run python`, `.venv/bin/python`) or only mention python are
+left alone.
 
 ## Old thinking
 

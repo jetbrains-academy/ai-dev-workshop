@@ -46,6 +46,33 @@ export function redirectGraderEdits(markdown: string): { markdown: string; redir
   return { markdown: lines.join("\n"), redirected };
 }
 
+// executing-plans' task-start finds a task by a heading "Task N". In 3 of 11 headless runs on
+// 2026-11-25 the plan numbered its tasks "### 1. Update ..." instead; task-start failed, and Pi
+// either spent 200 to 470 seconds working out why or skipped the plan. A plan with no Task headings
+// but two or more numbered ones gets "Task" added; fenced code is left alone.
+const TASK_HEADING = /^#{1,6}[ \t]+Task[ \t]+\d+\b/;
+const NUMBERED_HEADING = /^(#{2,4})[ \t]+(\d+)[.):][ \t]+(\S.*)$/;
+
+export function taskHeadings(markdown: string): { markdown: string; renamed: number } {
+  const lines = markdown.split("\n");
+  let fenced = false;
+  const outside = lines.map((line) => {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    return !fenced && !/^\s*(```|~~~)/.test(line);
+  });
+  if (lines.some((line, i) => outside[i] && TASK_HEADING.test(line))) return { markdown, renamed: 0 };
+  const numbered = lines.filter((line, i) => outside[i] && NUMBERED_HEADING.test(line)).length;
+  if (numbered < 2) return { markdown, renamed: 0 };
+  let renamed = 0;
+  const out = lines.map((line, i) => {
+    const match = outside[i] ? line.match(NUMBERED_HEADING) : null;
+    if (!match) return line;
+    renamed += 1;
+    return `${match[1]} Task ${match[2]}: ${match[3]}`;
+  });
+  return { markdown: out.join("\n"), renamed };
+}
+
 /** This session has no subagent tool: point the writing-plans header at executing-plans only. */
 export function nativePlanHeader(markdown: string): string {
   return markdown.split("\n").map((line) => !/REQUIRED SUB-SKILL/.test(line) ? line : line
@@ -136,10 +163,13 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
     const corrected: string[] = [];
     let serverStarts = 0;
     let graderSteps = 0;
+    let taskSteps = 0;
     for (const [path, content] of changed) {
-      const kept = redirectGraderEdits(nativePlanHeader(content));
+      const headed = taskHeadings(content);
+      const kept = redirectGraderEdits(nativePlanHeader(headed.markdown));
       const frozen = freezePlanCommands(kept.markdown);
       graderSteps += kept.redirected;
+      taskSteps += headed.renamed;
       if (frozen.markdown === content) continue;
       writeFileSync(path, frozen.markdown);
       corrected.push(relative(ctx.cwd, path));
@@ -155,6 +185,10 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
     if (graderSteps) {
       text += ` Pointed ${graderSteps} plan step${graderSteps === 1 ? "" : "s"} that changed ${GRADER} at ` +
         `${OWN_TESTS}: the grader stays as shipped.`;
+    }
+    if (taskSteps) {
+      text += ` Named ${taskSteps} numbered heading${taskSteps === 1 ? "" : "s"} "Task N:" so executing-plans' ` +
+        "task-start can find each task.";
     }
     return { content: [...event.content, { type: "text", text }] };
   });

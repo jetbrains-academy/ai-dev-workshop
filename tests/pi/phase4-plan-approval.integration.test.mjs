@@ -425,3 +425,91 @@ test("before approval, searches outside the project are not this rule's business
   assert.equal((await call("find", { pattern: "x", path: "/" }))?.block, undefined);
   assert.deepEqual(errors, []);
 });
+
+const compactEvent = (cwd) => ({
+  type: "session_before_compact", reason: "threshold", willRetry: false, branchEntries: [], signal: new AbortController().signal,
+  preparation: { firstKeptEntryId: "keep-1", messagesToSummarize: [], turnPrefixMessages: [], isSplitTurn: false,
+    tokensBefore: 44000, fileOps: { read: new Set(["models.py"]), written: new Set(["tests/test_phase4.py"]),
+      edited: new Set(["app.py"]) }, settings: {} },
+});
+
+test("during execution the guard writes the compaction summary itself, with no model call", async (context) => {
+  const { cwd, errors, result, emit } = await approvedRun(context);
+  gitInit(cwd);
+  await result(taskStart(1), "brief: /w/task-1-brief.md\nbase: abc1234");
+  const out = await emit(compactEvent(cwd));
+  assert.equal(out?.compaction?.firstKeptEntryId, "keep-1");
+  assert.equal(out.compaction.tokensBefore, 44000);
+  const summary = out.compaction.summary;
+  assert.match(summary, /written by the Phase 4 plan guard/);
+  assert.ok(summary.includes(plan), summary);
+  assert.match(summary, /Continue Task 1 from its brief \/w\/task-1-brief\.md/);
+  assert.match(summary, /Uncommitted changes:/);
+  assert.match(summary, /Files read: models\.py/);
+  assert.match(summary, /Files changed: app\.py, tests\/test_phase4\.py/);
+  assert.deepEqual(errors, []);
+});
+
+test("before approval, compaction is left to Pi", async (context) => {
+  const { say, start, emit, errors, cwd } = await setup(context);
+  await say(planning);
+  await start(planning);
+  assert.equal((await emit(compactEvent(cwd)))?.compaction, undefined);
+  assert.deepEqual(errors, []);
+});
+
+test("after approval, planning-stage tool results leave the request but keep their place", async (context) => {
+  const run = await setup(context);
+  await run.say(planning);
+  await run.start(planning);
+  await writeFile(path.join(run.cwd, plan), twoTasks);
+  const before = Date.now() - 1000;
+  const planningCall = { role: "assistant", content: [{ type: "toolCall", id: "p1", name: "read", arguments: { path: "x" } }],
+    api: "openai-completions", provider: "lmstudio", model: "m", usage: {}, stopReason: "toolUse", timestamp: before };
+  const planningResult = { role: "toolResult", toolCallId: "p1", toolName: "read",
+    content: [{ type: "text", text: "x".repeat(5000) }], isError: false, timestamp: before };
+  await run.say("/skill:executing-plans " + APPROVAL);
+  await run.start("/skill:executing-plans " + APPROVAL);
+  const later = { ...planningResult, toolCallId: "e1", timestamp: Date.now() + 1000 };
+  const loaded = await sdk.discoverAndLoadExtensions([extension], run.cwd, run.cwd);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, run.cwd, run.session, undefined);
+  const out = await runner.emitContext([planningCall, planningResult, later]);
+  assert.equal(out.length, 3);
+  assert.equal(out[1].toolCallId, "p1");
+  assert.match(out[1].content[0].text, /planning-stage result omitted/);
+  assert.equal(out[2].content[0].text, "x".repeat(5000));
+  assert.deepEqual(run.errors, []);
+});
+
+async function fakeUv(context, exitCode) {
+  const bin = await mkdtemp(path.join(tmpdir(), "pi-fake-uv-"));
+  context.after(() => rm(bin, { recursive: true, force: true }));
+  await writeFile(path.join(bin, "uv"), `#!/bin/sh\necho "fake suite"\nexit ${exitCode}\n`, { mode: 0o755 });
+  const saved = process.env.PATH;
+  process.env.PATH = `${bin}:${saved}`;
+  context.after(() => { process.env.PATH = saved; });
+}
+
+test("once every task is recorded and the suite passes, the next call ends the turn; git still runs", async (context) => {
+  await fakeUv(context, 0);
+  const { errors, result, call } = await approvedRun(context);
+  await result(taskDone(1), ledgerLine(1));
+  assert.equal((await call("read", { path: "app.py" }))?.block, undefined, "one task left: keep working");
+  await result(taskDone(2), ledgerLine(2));
+  assert.equal((await call("bash", { command: "git add app.py && git commit -m done" }))?.block, undefined);
+  assert.equal((await call("bash", { command: "git status" }))?.block, undefined);
+  const decision = await call("read", { path: "tests/test_phase4.py" });
+  assert.equal(decision?.block, true);
+  assert.equal(decision.terminate, true);
+  assert.match(decision.reason, /Every task in the plan is recorded and the full test suite passes/);
+  assert.deepEqual(errors, []);
+});
+
+test("with every task recorded but a failing suite, Pi keeps working", async (context) => {
+  await fakeUv(context, 1);
+  const { errors, result, call } = await approvedRun(context);
+  await result(taskDone(1), ledgerLine(1));
+  await result(taskDone(2), ledgerLine(2));
+  assert.equal((await call("edit", { path: "app.py", edits: [] }))?.block, undefined);
+  assert.deepEqual(errors, []);
+});

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, realpathSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ContextEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const PLANS = "docs/superpowers/plans";
 const ENTRY = "workshop-phase4-plan-approval";
@@ -107,7 +107,8 @@ type Stage = { existing: string[] };
 type Phase4State =
   | ({ status: "design" } & Stage)
   | ({ status: "planning"; previousPlans: Record<string, string> } & Stage)
-  | { status: "approved"; plan?: string; progress?: PlanProgress; head?: string; staleLedger?: number[] }
+  | { status: "approved"; plan?: string; progress?: PlanProgress; head?: string; staleLedger?: number[];
+      approvedAt?: number; complete?: boolean }
   | { status: "finished" };
 
 const unlocked = (state: Phase4State) => state.status === "approved" || state.status === "finished";
@@ -230,6 +231,46 @@ function readOnlyShell(command: unknown): boolean {
 
 const PLAN_NOTE = "workshop-phase4-plan";
 
+const ALL_DONE = "Every task in the plan is recorded and the full test suite passes. Stop here and give your final " +
+  "report; the finish prompt runs the checks.";
+
+export function compactionSummary(plan: string, note: string | undefined, status: string,
+  fileOps: { read: Set<string>; written: Set<string>; edited: Set<string> }): string {
+  const changed = [...new Set([...fileOps.edited, ...fileOps.written])].sort();
+  return [
+    "Summary written by the Phase 4 plan guard from its own records (no model summary).",
+    `The user approved the plan ${plan}; you are executing it with the executing-plans skill, one task at a time.`,
+    note ?? "Every task in the plan is recorded: run the full test suite, commit anything left, and report.",
+    `Uncommitted changes: ${status.trim() ? status.trim().split("\n").join("; ") : "none"}.`,
+    `Files read: ${fileOps.read.size ? [...fileOps.read].sort().join(", ") : "none"}.`,
+    `Files changed: ${changed.length ? changed.join(", ") : "none"}.`,
+    "The latest exchanges follow.",
+  ].join("\n");
+}
+
+type ContextMessage = ContextEvent["messages"][number];
+
+export function stubPlanningResults(messages: ContextMessage[], approvedAt: number): ContextMessage[] | undefined {
+  let changed = false;
+  const out = messages.map((message) => {
+    if (message.role !== "toolResult" || typeof message.timestamp !== "number" || message.timestamp >= approvedAt) return message;
+    const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+    if (text.length < 200) return message;
+    changed = true;
+    return { ...message, content: [{ type: "text", text: "[planning-stage result omitted after the plan was approved]" }] };
+  });
+  return changed ? out : undefined;
+}
+
+function suitePasses(cwd: string): boolean {
+  try {
+    execFileSync("uv", ["run", "--frozen", "python", "-m", "pytest", "-q"], { cwd, stdio: "pipe", timeout: 60_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // After approval, Pi's own search tools stay inside the project. In headless runs on 2026-11-25,
 // searches of the home folder turned up other tools' cached copies of the Superpowers scripts,
 // reported relative to the home folder so they looked like project paths, and fed the belief
@@ -332,6 +373,11 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
     } else {
       if (!new RegExp(`^ledger: Task ${n}: complete\\b`, "m").test(text) || progress.recorded.includes(n)) return;
       progress.recorded.push(n);
+      const tasks = planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8"));
+      if (tasks.length && tasks.every((task) => progress.recorded.includes(task.number)) && suitePasses(ctx.cwd)) {
+        pi.appendEntry<Phase4State>(ENTRY, { ...state, progress, complete: true });
+        return;
+      }
     }
     pi.appendEntry<Phase4State>(ENTRY, { ...state, progress });
   });
@@ -343,16 +389,44 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
   pi.on("agent_start", () => { runEnded = false; });
   pi.on("agent_end", () => { runEnded = true; });
 
-  pi.on("session_compact", (event, ctx) => {
-    const state = stateFor(ctx);
-    if (state?.status !== "approved" || !state.plan || !statIfPresent(join(ctx.cwd, state.plan))) return;
+  const currentNote = (ctx: ExtensionContext, state: Phase4State) => {
+    if (state.status !== "approved" || !state.plan || !statIfPresent(join(ctx.cwd, state.plan))) return;
     const progress = state.progress ?? { started: {}, recorded: [] };
     // A ledger from an earlier rehearsal of the same plan name is not this run's progress.
     const ledger = readLedger(ctx.cwd, state.plan).filter((n) => !(state.staleLedger ?? []).includes(n));
     const recorded = [...new Set([...progress.recorded, ...ledger])];
     const log = state.head ? gitOutput(ctx.cwd, "log", "--oneline", "--reverse", `${state.head}..HEAD`) : undefined;
-    const note = planNote(state.plan, planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8")),
+    return planNote(state.plan, planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8")),
       { ...progress, recorded }, scriptsDir(), log ? log.split("\n") : []);
+  };
+
+  // During execution the guard writes the compaction summary from what it tracks, so a compaction
+  // costs no model call. Mellum's summaries took a median 64 s (4,000 to 12,000 reasoning tokens for
+  // a summary of about 1,200), two hit the output cap after 174 and 207 s, and one said Pi was still
+  // waiting to choose an execution approach. The latest exchanges are kept as usual.
+  pi.on("session_before_compact", (event, ctx) => {
+    const state = stateFor(ctx);
+    if (state?.status !== "approved" || !state.plan) return;
+    const note = currentNote(ctx, state);
+    const summary = compactionSummary(state.plan, note, gitOutput(ctx.cwd, "status", "--short") ?? "", event.preparation.fileOps);
+    return { compaction: { summary, firstKeptEntryId: event.preparation.firstKeptEntryId,
+      tokensBefore: event.preparation.tokensBefore } };
+  });
+
+  // Planning-stage tool results (skill text, file reads) are 10 to 14K tokens of a 60K window when
+  // execution starts. After approval each is replaced by a stub in the request; the call and its
+  // result keep their place, so the conversation stays well formed.
+  pi.on("context", (event, ctx) => {
+    const state = stateFor(ctx);
+    if (state?.status !== "approved" || !state.approvedAt) return;
+    const messages = stubPlanningResults(event.messages, state.approvedAt);
+    return messages ? { messages } : undefined;
+  });
+
+  pi.on("session_compact", (event, ctx) => {
+    const state = stateFor(ctx);
+    if (!state) return;
+    const note = currentNote(ctx, state);
     if (!note) return;
     const deliverAs = runEnded && !event.willRetry ? "nextTurn" : "steer";
     pi.sendMessage({ customType: PLAN_NOTE, content: note, display: true }, { deliverAs });
@@ -388,7 +462,7 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
       const plan = newest(withTasks.length ? withTasks : fresh);
       pi.appendEntry<Phase4State>(ENTRY, {
         status: "approved", plan, progress: { started: {}, recorded: [] },
-        head: gitOutput(ctx.cwd, "rev-parse", "HEAD"), staleLedger: readLedger(ctx.cwd, plan),
+        head: gitOutput(ctx.cwd, "rev-parse", "HEAD"), staleLedger: readLedger(ctx.cwd, plan), approvedAt: Date.now(),
       });
       approvalNote = true;
       return;
@@ -399,6 +473,13 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
 
   pi.on("tool_call", (event, ctx) => {
     const state = stateFor(ctx);
+    // Once every task is recorded and the suite passes, work after that is a tail the audience waits
+    // through (135 to 322 s in four runs). Git still runs, so leftover work can be committed.
+    if (state?.status === "approved" && state.complete) {
+      const command = (event.input as { command?: unknown }).command;
+      const git = event.toolName === "bash" && typeof command === "string" && /^\s*git\b/.test(command);
+      if (!git) return { block: true, reason: `${blockedCall(event.toolName, event.input as Record<string, unknown>)} ${ALL_DONE}`, terminate: true };
+    }
     if (state?.status === "approved" && SEARCH_TOOLS.has(event.toolName)) {
       const input = event.input as Record<string, unknown>;
       const skillsRoot = executingPlans ? dirname(dirname(executingPlans)) : undefined;

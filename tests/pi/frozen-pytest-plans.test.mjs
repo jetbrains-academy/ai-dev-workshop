@@ -114,3 +114,19 @@ test("points plan steps that change the grader at a new test file", () => {
   const once = redirectGraderEdits(plan).markdown;
   assert.deepEqual(redirectGraderEdits(once), { markdown: once, redirected: 0 });
 });
+
+test("numbered plan headings without Task become Task headings", async () => {
+  const { taskHeadings } = await import("../../pi-extensions/frozen-pytest-plans.ts");
+  const plan = lines("# Plan", "### 1. Update Complaint Model", "- [ ] step", "### 2) Routes", "```", "### 3. not a task", "```",
+    "#### 3: Template");
+  assert.deepEqual(taskHeadings(plan), {
+    markdown: lines("# Plan", "### Task 1: Update Complaint Model", "- [ ] step", "### Task 2: Routes", "```", "### 3. not a task",
+      "```", "#### Task 3: Template"),
+    renamed: 3,
+  });
+  const tasks = lines("### Task 1: A", "### 2. Also a section");
+  assert.deepEqual(taskHeadings(tasks), { markdown: tasks, renamed: 0 }, "a plan that has Task headings is left alone");
+  const once = taskHeadings(plan).markdown;
+  assert.deepEqual(taskHeadings(once), { markdown: once, renamed: 0 });
+  assert.deepEqual(taskHeadings("### 1. Only one"), { markdown: "### 1. Only one", renamed: 0 }, "one numbered heading is not a task list");
+});
