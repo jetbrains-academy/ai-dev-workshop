@@ -45,3 +45,15 @@ test("the README's Phase 4 prompts match the shipped config", async () => {
   assert.equal(matchPrompt(config.prompts.plan, find("Skip the questions")), undefined);
   assert.deepEqual(matchPrompt(config.prompts.plan, "The Phase 4 design looks good. Please proceed with planning."), { phase: 4 });
 });
+
+test("the planning prompt matches in either word order, as whole words", () => {
+  const { prompts } = projectConfig(repo);
+  assert.deepEqual(matchPrompt(prompts.plan, "Write the implementation plan for Phase 4."), { phase: 4 });
+  assert.deepEqual(matchPrompt(prompts.plan, "/skill:writing-plans Plan Phase 4 from the design."), { phase: 4 });
+  assert.equal(matchPrompt(prompts.plan, "Keep going with the Phase 4 plans."), undefined);
+});
+
+test("a prompt can be a list of patterns; the first that matches gives the phase", () => {
+  assert.deepEqual(matchPrompt(["^a Phase {n}$", "^Phase {n} b$"], "Phase 7 b"), { phase: 7 });
+  assert.equal(matchPrompt(["^a Phase {n}$"], "Phase 7 b"), undefined);
+});

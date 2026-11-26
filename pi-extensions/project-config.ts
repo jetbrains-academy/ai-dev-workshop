@@ -7,8 +7,9 @@ export interface ProjectConfig {
   roadmap?: string;
   /** A roadmap heading, with {n} for the phase number: "## Phase {n}". */
   phaseHeading?: string;
-  /** Case-insensitive regular expressions searched in a typed prompt; {n} captures the phase number. */
-  prompts?: { design?: string; plan?: string; approve?: string; finish?: string };
+  /** Case-insensitive regular expressions searched in a typed prompt; {n} captures the phase number. A list
+   * holds alternatives, each with its own {n}, such as two word orders. */
+  prompts?: { design?: Pattern; plan?: Pattern; approve?: Pattern; finish?: Pattern };
   python?: string;
   pytest?: string;
   testSuite?: string;
@@ -20,6 +21,8 @@ export interface ProjectConfig {
   model?: { contextWindow?: number; thinkingLevel?: string };
 }
 
+export type Pattern = string | string[];
+
 export const CONFIG_FILE = ".pi/project.json";
 
 export function projectConfig(cwd: string): ProjectConfig {
@@ -30,8 +33,15 @@ export function projectConfig(cwd: string): ProjectConfig {
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Match a typed prompt, without a leading `/skill:<name> `, against a config pattern. */
-export function matchPrompt(pattern: string | undefined, text: string): { phase: number | undefined } | undefined {
+export function matchPrompt(pattern: Pattern | undefined, text: string): { phase: number | undefined } | undefined {
   if (!pattern) return;
+  if (Array.isArray(pattern)) {
+    for (const each of pattern) {
+      const match = matchPrompt(each, text);
+      if (match) return match;
+    }
+    return;
+  }
   let first = true;
   const source = pattern.replaceAll("{n}", () => {
     const group = first ? "(?<n>\\d+)" : "\\k<n>";

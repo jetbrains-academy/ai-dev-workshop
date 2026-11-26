@@ -3,7 +3,7 @@
   "phaseHeading": "## Phase {n}",
   "prompts": {
     "design": "\\bbrainstorm\\b.*\\bPhase {n}\\b",
-    "plan": "\\bPhase {n}\\b.*\\bplan",
+    "plan": ["\\bPhase {n}\\b.*\\b(?:plan|planning)\\b", "\\b(?:plan|planning)\\b.*\\bPhase {n}\\b"],
     "approve": "^The plan looks good\\. Proceed with native execution\\.$",
     "finish": "^Use Superpowers to finish Phase {n}\\. Keep the current branch as-is and mark Phase {n} done in specs/roadmap\\.md\\.$"
   },
