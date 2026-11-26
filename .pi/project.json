@@ -1,0 +1,22 @@
+{
+  "roadmap": "specs/roadmap.md",
+  "phaseHeading": "## Phase {n}",
+  "prompts": {
+    "design": "\\bbrainstorm\\b.*\\bPhase {n}\\b",
+    "plan": "\\bPhase {n}\\b.*\\bplan",
+    "approve": "^The plan looks good\\. Proceed with native execution\\.$",
+    "finish": "^Use Superpowers to finish Phase {n}\\. Keep the current branch as-is and mark Phase {n} done in specs/roadmap\\.md\\.$"
+  },
+  "python": "uv run --frozen python",
+  "pytest": "uv run --frozen python -m pytest",
+  "testSuite": "uv run --frozen python -m pytest tests",
+  "implementation": ["*.py", "templates", "pyproject.toml", "uv.lock"],
+  "servers": {
+    "commands": ["uvicorn", "gunicorn", "hypercorn", "daphne", "waitress-serve", "flask run", "fastapi dev", "fastapi run"],
+    "modules": ["uvicorn", "gunicorn", "hypercorn", "daphne", "waitress", "flask", "http.server"],
+    "scripts": ["app.py", "main.py", "server.py", "serve.py", "asgi.py", "wsgi.py"]
+  },
+  "inProcessHint": "Check the route in process, the way the tests do: `from starlette.testclient import TestClient; TestClient(app).post(path, follow_redirects=False)`. Without `follow_redirects=False` the client follows a 303 and reports the 200 of the page it lands on.",
+  "shellLimitSeconds": 30,
+  "model": { "contextWindow": 60000, "thinkingLevel": "high" }
+}

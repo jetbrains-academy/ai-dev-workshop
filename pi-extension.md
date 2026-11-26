@@ -1,9 +1,33 @@
 # Local Pi extensions
 
 Phase 4 uses Superpowers with the automatic bootstrap filter, a filter that
-drops old thinking from requests, live-server guard, a shell time limit, frozen
-pytest commands in plans and bare `python` in shell commands, plan approval
-guard, and branch and finish guard.
+drops old thinking from requests, live-server guard, a shell time limit, the
+project's test and Python commands in plans and shell commands, plan approval
+guard, branch and finish guard, and a startup check of the model settings.
+
+## Project config
+
+No extension carries text written for this project, its stack or one phase. All of it is in
+[`.pi/project.json`](.pi/project.json), read by [`project-config.ts`](pi-extensions/project-config.ts):
+
+- `roadmap` and `phaseHeading` (`"## Phase {n}"`): where phases live and how their headings look.
+- `prompts.design`, `plan`, `approve`, `finish`: case-insensitive patterns searched in what you type, after a
+  leading `/skill:<name>`. `{n}` captures the phase number; a second `{n}` must name the same phase. The guards
+  take the phase from these prompts, so their messages say "Phase 4" for Phase 4 and "Phase 5" for Phase 5.
+  `tests/pi/project-config.test.mjs` checks that the README's Phase 4 prompts match.
+- `python`, `pytest`, `testSuite`, `implementation`: the commands the extensions run or write into plans, and the
+  files whose change during the finish check stops it.
+- `servers` and `inProcessHint`: what counts as starting a server, and what to do instead.
+- `shellLimitSeconds`: the shell time limit.
+- `model.contextWindow`, `model.thinkingLevel`: what [`project-check.ts`](pi-extensions/project-check.ts) compares
+  with Pi's settings at session start and on every model or thinking change. A mismatch shows a warning with the
+  fix. In a 2026-11-26 session on another machine, Pi believed the window was larger than LM Studio's 60K, never
+  compacted, and lost the conversation when LM Studio dropped context; thinking was off because the model entry
+  lacked `"reasoning": true`.
+
+An extension whose key is missing does nothing. Superpowers' own conventions (`docs/superpowers/`, the
+executing-plans scripts, `Task N` headings) stay built in. The Flask-to-FastAPI route rewrite was removed: it fixed
+a mistake in the model's code for one stack, which the config cannot express without encoding the answer.
 
 ## Frozen for the demo (2026-11-26)
 
@@ -84,13 +108,14 @@ saved plans point at `executing-plans`.
     }
   ],
   "extensions": [
+    "../pi-extensions/project-check.ts",
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/drop-old-thinking.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/bash-timeout.ts",
     "../pi-extensions/frozen-python.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
-    "../pi-extensions/phase4-plan-approval.ts",
+    "../pi-extensions/plan-approval.ts",
     "../pi-extensions/keep-branch.ts"
   ],
   "defaultTools": ["+find", "+grep"],
@@ -124,12 +149,9 @@ server start, as the live-server guard recognises it, becomes
 `uv run --frozen python -m pytest tests`, unless the words just before it forbid
 it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
 Python code blocks stay as written.
-A route path written the Flask way, `/<int:id>` or `/<id>`, becomes
-`/{id}`, and the note says that FastAPI path parameters are written `{id}`: a
-`<int:id>` route never matches, and in the two runs whose plan had one and Pi copied
-it into `app.py`, Pi spent 10 and 30 minutes on probes without seeing why every request
-answered 404. The removed FastAPI skill said `{id}` too, but Pi read it only after the
-plan was approved, and the run that read it still kept the Flask path. A plan with no `Task N` headings but two or more numbered
+Until 2026-11-26 a route path written the Flask way, `/<int:id>`, was also rewritten to `{id}` (two runs had
+copied such a path into `app.py` and spent 10 and 30 minutes on probes); that rewrite was removed with the move to
+the project config. A plan with no `Task N` headings but two or more numbered
 ones (`### 1. Update Complaint Model`) gets "Task" added, because
 `executing-plans`' `task-start` finds tasks by "Task N": in 3 of 11 runs on
 2026-11-25 such a plan cost 200 to 470 seconds or was skipped. It also points the plan header's "REQUIRED SUB-SKILL" at `executing-plans`
@@ -147,10 +169,10 @@ was removed on 2026-11-25 for the same reason: Pi read it in 15 of 27 headless
 runs, about 700 tokens each time, and those runs drew GET links or a broken
 route no less often than the 12 that did not.
 
-### Phase 4 approval and finish
+### Phase approval and finish
 
-[`phase4-plan-approval.ts`](pi-extensions/phase4-plan-approval.ts) activates
-when you ask Pi to brainstorm or plan Phase 4. Before approval, Pi can inspect
+[`plan-approval.ts`](pi-extensions/plan-approval.ts) (named `phase4-plan-approval.ts` until 2026-11-26) activates
+when you ask Pi to brainstorm or plan a phase, as the config's `design` and `plan` prompts recognise it. Before approval, Pi can inspect
 the repo and write design or plan Markdown under `docs/superpowers/`. To
 enable implementation, wait for Pi to save a new or revised plan and stop,
 then send the approval prompt from the [README](README.md#phase-4-pi--mellum--superpowers).

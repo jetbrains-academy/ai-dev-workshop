@@ -3,21 +3,33 @@
     {
       "source": "https://github.com/nicobailon/pi-subagents",
       "autoload": false,
-      "extensions": ["!**"],
-      "skills": ["!**"],
-      "prompts": ["!**"]
+      "extensions": [
+        "!**"
+      ],
+      "skills": [
+        "!**"
+      ],
+      "prompts": [
+        "!**"
+      ]
     }
   ],
   "extensions": [
+    "../pi-extensions/project-check.ts",
     "../pi-extensions/superpowers-unbootstrap.ts",
     "../pi-extensions/drop-old-thinking.ts",
     "../pi-extensions/no-live-server.ts",
     "../pi-extensions/bash-timeout.ts",
     "../pi-extensions/frozen-python.ts",
     "../pi-extensions/frozen-pytest-plans.ts",
-    "../pi-extensions/phase4-plan-approval.ts",
+    "../pi-extensions/plan-approval.ts",
     "../pi-extensions/keep-branch.ts"
   ],
-  "defaultTools": ["+find", "+grep"],
-  "compaction": { "keepRecentTokens": 8000 }
+  "defaultTools": [
+    "+find",
+    "+grep"
+  ],
+  "compaction": {
+    "keepRecentTokens": 8000
+  }
 }

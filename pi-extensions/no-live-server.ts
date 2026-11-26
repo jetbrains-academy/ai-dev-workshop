@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { projectConfig, type ProjectConfig } from "./project-config.ts";
 
 // A small model that is puzzled by an HTTP result starts the app and curls it. A foreground
 // start hangs the turn; a background start keeps the port after the turn ends. Either way
@@ -6,9 +7,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // Adapted from mellum-worker's live-server guard. It reads each shell segment's command
 // word, so `.venv/bin/uvicorn` and `echo hi && uvicorn` count and `pip show uvicorn` does not.
 
-const SERVERS = new Set(["uvicorn", "gunicorn", "hypercorn", "daphne", "waitress-serve"]);
-const SERVER_MODULES = new Set(["uvicorn", "gunicorn", "hypercorn", "daphne", "waitress", "flask", "http.server"]);
-const SERVER_SCRIPTS = new Set(["app.py", "main.py", "server.py", "serve.py", "asgi.py", "wsgi.py"]);
 const HTTP_CLIENTS = new Set(["curl", "wget", "http", "https", "xh"]);
 const WRAPPERS = new Set(["nohup", "time", "exec", "env", "command", "sudo", ".", "source"]);
 const RUNNERS = new Set(["uv", "poetry", "pdm", "hatch", "pipenv", "rye"]);
@@ -34,7 +32,14 @@ function commandWords(segment: string): string[] {
 
 export type Verdict = "server" | "probe" | undefined;
 
-export function liveServerUse(command: string): Verdict {
+export type Servers = NonNullable<ProjectConfig["servers"]>;
+
+/** Which servers count comes from `servers` in .pi/project.json: command words, `python -m` modules, scripts. */
+export function liveServerUse(command: string, servers: Servers | undefined): Verdict {
+  if (!servers) return undefined;
+  const modules = new Set(servers.modules ?? []);
+  const scripts = new Set(servers.scripts ?? []);
+  const commands = (servers.commands ?? []).map((entry) => entry.split(/\s+/));
   // Quoted text is data (`python -c "import uvicorn"`, `git commit -m "run uvicorn"`).
   const bare = command.replace(/'[^']*'|"[^"]*"/g, " Q ");
   for (const segment of bare.split(/&&|\|\||[;|&\n()]/)) {
@@ -42,33 +47,29 @@ export function liveServerUse(command: string): Verdict {
     if (first === undefined) continue;
     const name = basename(first);
     if (rest.includes("--version") || rest.includes("--help")) continue;
-    if (SERVERS.has(name)) return "server";
-    if (name === "flask" && rest[0] === "run") return "server";
-    if (name === "fastapi" && (rest[0] === "dev" || rest[0] === "run")) return "server";
+    if (commands.some(([word, ...args]) => word === name && args.every((arg, index) => rest[index] === arg))) return "server";
     if (/^python\d?(\.\d+)?$/.test(name)) {
       const args = rest.filter((word, index) => !word.startsWith("-") || word === "-m" || rest[index - 1] === "-m");
-      if (args[0] === "-m" ? SERVER_MODULES.has(args[1] ?? "") : SERVER_SCRIPTS.has(basename(args[0] ?? ""))) return "server";
+      if (args[0] === "-m" ? modules.has(args[1] ?? "") : scripts.has(basename(args[0] ?? ""))) return "server";
     }
     if (HTTP_CLIENTS.has(name) && LOOPBACK.test(command)) return "probe";
   }
   return undefined;
 }
 
-const IN_PROCESS =
-  "Check the route in process, the way the tests do: " +
-  "`from starlette.testclient import TestClient; TestClient(app).post(path, follow_redirects=False)`. " +
-  "Without `follow_redirects=False` the client follows a 303 and reports the 200 of the page it lands on.";
-
-const REASONS = {
-  server: `Blocked: this starts the app as a server, which never returns and keeps its port. ${IN_PROCESS}`,
-  probe: `Blocked: this calls a local server, and none should be running. ${IN_PROCESS}`,
-};
-
 export default function noLiveServer(pi: ExtensionAPI) {
-  pi.on("tool_call", (event) => {
+  pi.on("tool_call", (event, ctx) => {
     if (event.toolName !== "bash") return;
     const command = (event.input as { command?: unknown }).command;
-    const verdict = typeof command === "string" ? liveServerUse(command) : undefined;
-    if (verdict) return { block: true, reason: REASONS[verdict] };
+    const config = projectConfig(ctx.cwd);
+    const verdict = typeof command === "string" ? liveServerUse(command, config.servers) : undefined;
+    if (!verdict) return;
+    const hint = config.inProcessHint ? ` ${config.inProcessHint}` : "";
+    return {
+      block: true,
+      reason: verdict === "server"
+        ? `Blocked: this starts the app as a server, which never returns and keeps its port.${hint}`
+        : `Blocked: this calls a local server, and none should be running.${hint}`,
+    };
   });
 }

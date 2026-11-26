@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fastapiPaths, freezePlanCommands, nativePlanHeader } from "../../pi-extensions/frozen-pytest-plans.ts";
+import { freezePlanCommands, nativePlanHeader } from "../../pi-extensions/frozen-pytest-plans.ts";
+import { fileURLToPath } from "node:url";
+import { projectConfig } from "../../pi-extensions/project-config.ts";
+const config = projectConfig(fileURLToPath(new URL("../../", import.meta.url)));
 
 const SUITE = "uv run --frozen python -m pytest tests";
 const lines = (...parts) => parts.join("\n");
@@ -11,7 +14,7 @@ test("rewrites server steps to the test suite", () => {
     "Start app: `uvicorn app:app --reload`",
     "```bash", "python3 app.py &", "```",
   );
-  assert.deepEqual(freezePlanCommands(plan), {
+  assert.deepEqual(freezePlanCommands(plan, config), {
     markdown: lines(
       "Run: `" + SUITE + "` and navigate to /complaints",
       "Start app: `" + SUITE + "`",
@@ -27,7 +30,7 @@ test("freezes python commands", () => {
     "```sh", "uv run python -m py_compile models.py", "```",
     "Command: `python3.14 -m pytest tests`",
   );
-  assert.deepEqual(freezePlanCommands(plan), {
+  assert.deepEqual(freezePlanCommands(plan, config), {
     markdown: lines(
       'Run: `uv run --frozen python -c "from models import complaints"`',
       "```sh", "uv run --frozen python -m py_compile models.py", "```",
@@ -43,7 +46,7 @@ test("leaves prose, prohibitions and Python code alone", () => {
     "Never run `python app.py`; check routes with `TestClient`.",
     "```python", "import uvicorn", "uvicorn.run(app)", "```",
   );
-  assert.deepEqual(freezePlanCommands(plan), {
+  assert.deepEqual(freezePlanCommands(plan, config), {
     markdown: plan.replace("`python app.py`", "`uv run --frozen python app.py`"),
     serverStarts: 0,
   });
@@ -54,7 +57,7 @@ test("keeps commands a labeled line forbids", () => {
     "Run: `uv run pytest tests -v`; do not start `uvicorn`",
     "Run: `pytest -q` (never `python app.py`)",
   );
-  assert.deepEqual(freezePlanCommands(plan), {
+  assert.deepEqual(freezePlanCommands(plan, config), {
     markdown: lines(
       "Run: `uv run --frozen python -m pytest tests -v`; do not start `uvicorn`",
       "Run: `uv run --frozen python -m pytest -q` (never `uv run --frozen python app.py`)",
@@ -69,8 +72,8 @@ test("is idempotent", () => {
     lines('Run: `python -c "import models"`', "Command: `python3.14 -m pytest tests`"),
     lines("Run: `pytest tests/test_board.py -v`", "Never run `python app.py`."),
   ]) {
-    const once = freezePlanCommands(plan);
-    assert.deepEqual(freezePlanCommands(once.markdown), { markdown: once.markdown, serverStarts: 0 });
+    const once = freezePlanCommands(plan, config);
+    assert.deepEqual(freezePlanCommands(once.markdown, config), { markdown: once.markdown, serverStarts: 0 });
   }
 });
 
@@ -101,28 +104,8 @@ test("numbered plan headings without Task become Task headings", async () => {
   assert.deepEqual(taskHeadings("### 1. Only one"), { markdown: "### 1. Only one", renamed: 0 }, "one numbered heading is not a task list");
 });
 
-test("writes Flask-style path parameters the FastAPI way", () => {
-  // Final n=8 run 1 (2026-11-25): the plan had "@app.route('/complaints/<int:id>/resolve', methods=['POST'])";
-  // the route never matched, and Pi spent 30 minutes on probes.
-  const plan = lines(
-    "@app.route('/complaints/<int:id>/resolve', methods=['POST'])",
-    '@app.post("/complaints/<int:complaint_id>/reopen")',
-    "POST /complaints/<id>/resolve redirects to /complaints.",
-    '@app.post("/complaints/{id}/resolve")',
-    "<form method=\"post\" action=\"/complaints/{{ c.id }}/resolve\"><button>Resolve</button></form>",
-    "if a < b and c > d: pass",
-  );
-  assert.deepEqual(fastapiPaths(plan), {
-    markdown: lines(
-      "@app.route('/complaints/{id}/resolve', methods=['POST'])",
-      '@app.post("/complaints/{complaint_id}/reopen")',
-      "POST /complaints/{id}/resolve redirects to /complaints.",
-      '@app.post("/complaints/{id}/resolve")',
-      "<form method=\"post\" action=\"/complaints/{{ c.id }}/resolve\"><button>Resolve</button></form>",
-      "if a < b and c > d: pass",
-    ),
-    rewritten: 3,
-  });
-  const once = fastapiPaths(plan).markdown;
-  assert.deepEqual(fastapiPaths(once), { markdown: once, rewritten: 0 });
+
+test("with no commands in the project config a plan is left as written", () => {
+  const plan = lines("Run: `pytest tests -v`", "```bash", "uvicorn app:app", "python -c 'x'", "```");
+  assert.deepEqual(freezePlanCommands(plan, {}), { markdown: plan, serverStarts: 0 });
 });

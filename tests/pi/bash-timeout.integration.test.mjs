@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -15,6 +15,8 @@ const cwd = path.join(sandbox, "project");
 const agentDir = path.join(sandbox, "agent");
 await mkdir(cwd);
 await mkdir(agentDir);
+await mkdir(path.join(cwd, ".pi"));
+await writeFile(path.join(cwd, ".pi/project.json"), await readFile(new URL("../../.pi/project.json", import.meta.url)));
 
 test("Pi's bash tool stops a command that never returns and the result explains why", async () => {
   const loaded = await sdk.discoverAndLoadExtensions([local("no-live-server.ts"), local("bash-timeout.ts")], cwd, agentDir);

@@ -2,11 +2,11 @@ import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } fr
 import { join, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { liveServerUse } from "./no-live-server.ts";
+import { projectConfig, type ProjectConfig } from "./project-config.ts";
 
 const PLANS = "docs/superpowers/plans";
-const FROZEN = "uv run --frozen python -m pytest";
-export const FROZEN_PYTHON = "uv run --frozen python";
-export const TEST_SUITE = FROZEN + " tests";
+// A plan's pytest and python commands become the project's own (`pytest`, `python` in .pi/project.json),
+// and a server start becomes its `testSuite`. Without those keys a plan is saved as written.
 const PYTEST = /^(?:uv[ \t]+run[ \t]+)?(?:python(?:3(?:\.\d+)?)?[ \t]+-m[ \t]+)?pytest(?=$|[ \t])/;
 const PYTHON = /^(?:uv[ \t]+run[ \t]+)?python(?:3(?:\.\d+)?)?(?=$|[ \t])/;
 const SHELL_FENCE = /^(?:bash|sh|shell|zsh|console)?$/i;
@@ -16,21 +16,6 @@ const PROHIBITION = /\b(?:never|not|don't|avoid|instead of|without)\b/i;
 export interface FrozenPlan {
   markdown: string;
   serverStarts: number;
-}
-
-// Flask writes a path parameter "/<int:id>"; FastAPI writes "/{id}", and a "<int:id>" route never matches. In the
-// final n=8 check on 2026-11-25, run 1's plan had "@app.route('/complaints/<int:id>/resolve', ...)"; Pi copied the
-// path into app.py and spent 30 minutes on probes without seeing it. Thinking-filter run 4 did the same.
-const FLASK_PARAM = /\/<(?:(?:int|str|path|float|uuid):)?([A-Za-z_]\w*)>/g;
-
-export function fastapiPaths(markdown: string): { markdown: string; rewritten: number } {
-  let rewritten = 0;
-  const out = markdown.split("\n").map((line) => {
-    const fixed = line.replace(FLASK_PARAM, (_match, name: string) => `/{${name}}`);
-    if (fixed !== line) rewritten += 1;
-    return fixed;
-  });
-  return { markdown: out.join("\n"), rewritten };
 }
 
 // executing-plans' task-start finds a task by a heading "Task N". In 3 of 11 headless runs on
@@ -68,14 +53,17 @@ export function nativePlanHeader(markdown: string): string {
   ).join("\n");
 }
 
-export function freezePlanCommands(markdown: string): FrozenPlan {
+export function freezePlanCommands(markdown: string, config: ProjectConfig): FrozenPlan {
   let serverStarts = 0;
   const freeze = (command: string, servers: boolean): string => {
-    if (servers && liveServerUse(command) === "server") {
+    if (servers && config.testSuite && liveServerUse(command, config.servers) === "server") {
       serverStarts += 1;
-      return TEST_SUITE;
+      return config.testSuite;
     }
-    return command.replace(PYTEST, FROZEN).replace(PYTHON, FROZEN_PYTHON);
+    let out = command;
+    if (config.pytest) out = out.replace(PYTEST, config.pytest);
+    if (config.python) out = out.replace(PYTHON, config.python);
+    return out;
   };
 
   let fence = "";
@@ -150,28 +138,22 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
     const corrected: string[] = [];
     let serverStarts = 0;
     let taskSteps = 0;
-    let pathLines = 0;
+    const config = projectConfig(ctx.cwd);
     for (const [path, content] of changed) {
       const headed = taskHeadings(content);
-      const paths = fastapiPaths(nativePlanHeader(headed.markdown));
-      const frozen = freezePlanCommands(paths.markdown);
+      const frozen = freezePlanCommands(nativePlanHeader(headed.markdown), config);
       taskSteps += headed.renamed;
-      pathLines += paths.rewritten;
       if (frozen.markdown === content) continue;
       writeFileSync(path, frozen.markdown);
       corrected.push(relative(ctx.cwd, path));
       serverStarts += frozen.serverStarts;
     }
     if (!corrected.length) return;
-    let text = `Applied the project's frozen pytest and Python commands in ${corrected.join(", ")}. ` +
-      `The saved plan uses \`${FROZEN_PYTHON}\`.`;
+    let text = `Applied the project's test and Python commands in ${corrected.join(", ")}.` +
+      (config.python ? ` The saved plan uses \`${config.python}\`.` : "");
     if (serverStarts) {
-      text += ` Replaced ${serverStarts} server start${serverStarts === 1 ? "" : "s"} with \`${TEST_SUITE}\`: ` +
-        "check routes in process with `TestClient(app)` and `follow_redirects=False`, not a live server.";
-    }
-    if (pathLines) {
-      text += ` Wrote the route paths on ${pathLines} plan line${pathLines === 1 ? "" : "s"} with \`{id}\`: FastAPI path ` +
-        "parameters are written `{id}`, and a Flask-style `<int:id>` path never matches.";
+      text += ` Replaced ${serverStarts} server start${serverStarts === 1 ? "" : "s"} with \`${config.testSuite}\`.` +
+        (config.inProcessHint ? ` ${config.inProcessHint}` : "");
     }
     if (taskSteps) {
       text += ` Named ${taskSteps} numbered heading${taskSteps === 1 ? "" : "s"} "Task N:" so executing-plans' ` +

@@ -10,15 +10,23 @@ for (const name of ["PI_PACKAGE_DIR", "SUPERPOWERS_DIR"]) {
   if (!process.env[name]) throw new Error(`Set ${name} as shown in pi-extension.md.`);
 }
 const sdk = await import(pathToFileURL(path.join(process.env.PI_PACKAGE_DIR, "dist/index.js")).href);
-const extension = fileURLToPath(new URL("../../pi-extensions/phase4-plan-approval.ts", import.meta.url));
+const extension = fileURLToPath(new URL("../../pi-extensions/plan-approval.ts", import.meta.url));
+const repo = fileURLToPath(new URL("../../", import.meta.url));
+// Temporary projects get the repo's own .pi/project.json, so the tests exercise the shipped values.
+const withConfig = async (cwd) => {
+  await mkdir(path.join(cwd, ".pi"), { recursive: true });
+  await writeFile(path.join(cwd, ".pi/project.json"), await readFile(path.join(repo, ".pi/project.json")));
+};
+const NOTE_CONTEXT = { phase: 4, pytest: "uv run --frozen python -m pytest" };
 const skills = sdk.loadSkillsFromDir({ dir: path.join(process.env.SUPERPOWERS_DIR, "skills"), source: "user" }).skills;
 const writingPlans = skills.find((skill) => skill.name === "writing-plans").filePath;
 
 async function setup(context, reuse) {
   const cwd = reuse?.cwd ?? await mkdtemp(path.join(tmpdir(), "pi-phase4-approval-"));
-  if (!reuse) {
+  if (!reuse?.cwd) {
     context.after(() => rm(cwd, { recursive: true, force: true }));
     await mkdir(path.join(cwd, "docs/superpowers/plans"), { recursive: true });
+    if (!reuse?.noConfig) await withConfig(cwd);
   }
   const loaded = await sdk.discoverAndLoadExtensions([extension], cwd, cwd);
   assert.deepEqual(loaded.errors, []);
@@ -123,6 +131,7 @@ async function setupAll(context) {
   const cwd = await mkdtemp(path.join(tmpdir(), "pi-phase4-dates-"));
   context.after(() => rm(cwd, { recursive: true, force: true }));
   for (const kind of ["plans", "specs"]) await mkdir(path.join(cwd, "docs/superpowers", kind), { recursive: true });
+  await withConfig(cwd);
   const loaded = await sdk.discoverAndLoadExtensions(allExtensions, cwd, cwd);
   assert.deepEqual(loaded.errors, []);
   const session = sdk.SessionManager.inMemory(cwd);
@@ -166,7 +175,7 @@ test("brainstorming and planning each get today's date once", async (context) =>
 const APPROVAL = "The plan looks good. Proceed with native execution.";
 const scripts = path.join(path.dirname(skills.find((skill) => skill.name === "executing-plans").filePath), "scripts");
 const twoTasks = "# Plan\n\n### Task 1: Model\n\n- [ ] step\n\n### Task 2: Routes\n\n- [ ] step\n";
-const planMessages = (result) => result.messages.filter((m) => m.customType === "workshop-phase4-plan");
+const planMessages = (result) => result.messages.filter((m) => m.customType === "plan-note");
 
 test("the executing-plans approval prompt unlocks execution and brings one plan note", async (context) => {
   const { cwd, errors, say, start, call } = await setup(context);
@@ -179,7 +188,7 @@ test("the executing-plans approval prompt unlocks execution and brings one plan 
   assert.equal((await call("edit", editModel))?.block, undefined);
   const notes = planMessages(await start("/skill:executing-plans " + APPROVAL));
   assert.equal(notes.length, 1);
-  assert.equal(notes[0].content, planNote(plan, planTasks(twoTasks), { started: {}, recorded: [] }, scripts));
+  assert.equal(notes[0].content, planNote(plan, planTasks(twoTasks), { started: {}, recorded: [] }, scripts, [], NOTE_CONTEXT));
   assert.equal(planMessages(await start("Continue.")).length, 0);
   assert.deepEqual(errors, []);
 });
@@ -215,7 +224,7 @@ async function approvedRun(context) {
   await run.say("/skill:executing-plans " + APPROVAL);
   await run.start("/skill:executing-plans " + APPROVAL);
   const { planNote, planTasks } = await import(pathToFileURL(extension).href);
-  run.note = (progress) => planNote(plan, planTasks(twoTasks), progress, scripts);
+  run.note = (progress) => planNote(plan, planTasks(twoTasks), progress, scripts, [], NOTE_CONTEXT);
   return run;
 }
 
@@ -226,7 +235,7 @@ test("after a compaction mid-task, Pi is told to continue that task", async (con
   assert.equal(sent.length, 1);
   assert.equal(sent[0].options.deliverAs, "steer");
   assert.equal(sent[0].options.triggerTurn, undefined);
-  assert.equal(sent[0].message.customType, "workshop-phase4-plan");
+  assert.equal(sent[0].message.customType, "plan-note");
   assert.equal(sent[0].message.content, note({ started: { 1: { brief: "/w/task-1-brief.md", base: "abc1234" } }, recorded: [] }));
   assert.deepEqual(errors, []);
 });
@@ -444,5 +453,37 @@ test("with every task recorded but a failing suite, Pi keeps working", async (co
   await result(taskDone(1), ledgerLine(1));
   await result(taskDone(2), ledgerLine(2));
   assert.equal((await call("edit", { path: "app.py", edits: [] }))?.block, undefined);
+  assert.deepEqual(errors, []);
+});
+
+test("the phase comes from the prompt: a Phase 5 design turn is guarded and named as Phase 5", async (context) => {
+  const { errors, say, start, call } = await setup(context);
+  const five = "Use Superpowers to brainstorm Phase 5 in specs/roadmap.md and save the design under docs/superpowers/specs/.";
+  await say(five);
+  await start(five);
+  const refused = await call("edit", editModel);
+  assert.equal(refused?.block, true);
+  assert.match(refused.reason, /Phase 5 approval guard/);
+  assert.doesNotMatch(refused.reason, /Phase 4/);
+  assert.deepEqual(errors, []);
+});
+
+test("a reworded planning prompt still starts the planning stage", async (context) => {
+  const { errors, say, start, call } = await setup(context);
+  await say(brainstorm);
+  await start(brainstorm);
+  const reworded = "The Phase 4 design looks good. Please proceed with planning.";
+  await say(reworded);
+  await start(reworded);
+  const refused = await call("edit", editModel);
+  assert.match(refused.reason, /only writes the plan/);
+  assert.deepEqual(errors, []);
+});
+
+test("without a project config the guard does nothing", async (context) => {
+  const { errors, say, start, call } = await setup(context, { noConfig: true });
+  await say(brainstorm);
+  await start(brainstorm);
+  assert.equal((await call("edit", editModel))?.block, undefined);
   assert.deepEqual(errors, []);
 });

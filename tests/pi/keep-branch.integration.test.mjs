@@ -11,6 +11,11 @@ const sdk = await import(pathToFileURL(path.join(process.env.PI_PACKAGE_DIR, "di
 const settingsPath = new URL("../../.pi/settings.json", import.meta.url);
 const settings = JSON.parse(await readFile(settingsPath, "utf8"));
 const cwd = fileURLToPath(new URL("../../", import.meta.url));
+// Temporary projects get the repo's own .pi/project.json, so the tests exercise the shipped values.
+const withConfig = async (project) => {
+  await mkdir(path.join(project, ".pi"), { recursive: true });
+  await writeFile(path.join(project, ".pi/project.json"), await readFile(path.join(cwd, ".pi/project.json")));
+};
 
 test("workshop Pi keeps its branch while allowing ordinary Git work", async (context) => {
   const agentDir = await mkdtemp(path.join(tmpdir(), "pi-keep-branch-"));
@@ -50,6 +55,7 @@ test("only the finish prompt marks Phase 4 done; model changes are refused or ro
   context.after(() => rm(project, { recursive: true, force: true }));
   execFileSync("git", ["init", "-q"], { cwd: project });
   await mkdir(path.join(project, "specs"));
+  await withConfig(project);
   const roadmap = path.join(project, "specs/roadmap.md");
   await writeFile(roadmap, pending + "\n");
 
@@ -101,6 +107,7 @@ test("the finish prompt runs the test suite and marks Phase 4 done when it passe
   execFileSync("git", ["init", "-q"], { cwd: project });
   await mkdir(path.join(project, "specs"));
   await mkdir(path.join(project, "tests"));
+  await withConfig(project);
   for (const file of ["pyproject.toml", "uv.lock"]) await writeFile(path.join(project, file), await readFile(path.join(cwd, file)));
   await writeFile(path.join(project, "specs/roadmap.md"), pending + "\n");
   const check = path.join(project, "tests/test_check.py");
@@ -128,4 +135,44 @@ test("the finish prompt runs the test suite and marks Phase 4 done when it passe
   assert.equal(sent[1].details.markedDone, true, sent[1].content);
   assert.equal(await readFile(path.join(project, "specs/roadmap.md"), "utf8"), done + "\n");
   assert.deepEqual(errors, []);
+});
+
+test("a model change that marks any phase done is refused, the current one or another", async (context) => {
+  const project = await mkdtemp(path.join(tmpdir(), "pi-phase-other-"));
+  context.after(() => rm(project, { recursive: true, force: true }));
+  execFileSync("git", ["init", "-q"], { cwd: project });
+  await withConfig(project);
+  await mkdir(path.join(project, "specs"));
+  const roadmap = path.join(project, "specs/roadmap.md");
+  const text = "## Phase 4 — Resolve and Reopen\n\n## Phase 5 — Archive\n";
+  await writeFile(roadmap, text);
+  const extensions = settings.extensions.map((entry) => fileURLToPath(new URL(entry, settingsPath)));
+  const loaded = await sdk.discoverAndLoadExtensions(extensions, project, project);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, project, sdk.SessionManager.inMemory(project), undefined);
+  const call = (toolName, input) => runner.emitToolCall({ type: "tool_call", toolCallId: "call", toolName, input });
+
+  const five = await call("edit", { path: "specs/roadmap.md", edits: [{ oldText: "## Phase 5 — Archive", newText: "## Phase 5 — Archive (Done)" }] });
+  assert.equal(five?.block, true);
+  assert.match(five.reason, /finish prompt/);
+
+  const input = { command: "sed -i '' 's/Archive$/Archive (Done)/' specs/roadmap.md" };
+  assert.equal((await call("bash", input))?.block, undefined);
+  await sdk.createBashTool(project).execute("call", input, undefined, undefined);
+  const rolledBack = await runner.emitToolResult({ type: "tool_result", toolCallId: "call", toolName: "bash", input, isError: false, content: [] });
+  assert.equal(rolledBack?.isError, true);
+  assert.equal(await readFile(roadmap, "utf8"), text);
+});
+
+test("without a project config the finish prompt is left to the model", async (context) => {
+  const project = await mkdtemp(path.join(tmpdir(), "pi-phase-noconfig-"));
+  context.after(() => rm(project, { recursive: true, force: true }));
+  execFileSync("git", ["init", "-q"], { cwd: project });
+  const extensions = settings.extensions.map((entry) => fileURLToPath(new URL(entry, settingsPath)));
+  const loaded = await sdk.discoverAndLoadExtensions(extensions, project, project);
+  const sent = [];
+  loaded.runtime.sendMessage = (message) => sent.push(message);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, project, sdk.SessionManager.inMemory(project), undefined);
+  const result = await runner.emitInput("Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.", undefined, "rpc");
+  assert.notEqual(result?.action, "handled");
+  assert.equal(sent.length, 0);
 });

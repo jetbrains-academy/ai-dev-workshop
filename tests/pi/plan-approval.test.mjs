@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { blockedCall } from "../../pi-extensions/phase4-plan-approval.ts";
+import { blockedCall } from "../../pi-extensions/plan-approval.ts";
 
 test("a refusal opens by naming the call it blocked", () => {
   assert.equal(blockedCall("write", { path: "app.py" }), "Blocked just now: your `write` call on `app.py`.");
@@ -16,23 +16,24 @@ test("long or multi-line commands are shortened to one line", () => {
 });
 
 test("today is the local date as YYYY-MM-DD", async () => {
-  const { today } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const { today } = await import("../../pi-extensions/plan-approval.ts");
   assert.equal(today(new Date(2026, 10, 5)), "2026-11-05");
   assert.equal(today(new Date(2026, 0, 31, 23, 59)), "2026-01-31");
 });
 
 test("planTasks reads the plan's task headings", async () => {
-  const { planTasks } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const { planTasks } = await import("../../pi-extensions/plan-approval.ts");
   assert.deepEqual(planTasks("# P\n### Task 1: Model\n...\n### Task 2: Routes\nTask 9: not a heading\n"),
     [{ number: 1, title: "Model" }, { number: 2, title: "Routes" }]);
 });
 
 test("planNote names the plan, its tasks, the scripts and where Pi is", async () => {
-  const { planTasks, planNote } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const { planTasks, planNote } = await import("../../pi-extensions/plan-approval.ts");
   const tasks = planTasks("# P\n### Task 1: Model\n...\n### Task 2: Routes\n");
   const s = "/sp/skills/executing-plans/scripts";
   const plan = "docs/superpowers/plans/2026-11-25-p.md";
-  const fresh = planNote(plan, tasks, { started: {}, recorded: [] }, s);
+  const fresh = planNote(plan, tasks, { started: {}, recorded: [] }, s, [], { phase: 4, pytest: "uv run --frozen python -m pytest" });
+  assert.match(fresh, /^Phase 4 plan: docs\/superpowers\/plans\/2026-11-25-p\.md\./);
   assert.match(fresh, /docs\/superpowers\/plans\/2026-11-25-p\.md/);
   assert.match(fresh, /Task 1: Model/);
   assert.match(fresh, /Task 2: Routes/);
@@ -58,7 +59,7 @@ test("readLedger reads this plan's ledger only", async (context) => {
   const { mkdtemp, mkdir, rm, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const path = await import("node:path");
-  const { readLedger } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const { readLedger } = await import("../../pi-extensions/plan-approval.ts");
   const cwd = await mkdtemp(path.join(tmpdir(), "pi-ledger-"));
   context.after(() => rm(cwd, { recursive: true, force: true }));
   const plan = "docs/superpowers/plans/p.md";
@@ -74,24 +75,36 @@ test("readLedger reads this plan's ledger only", async (context) => {
 });
 
 test("planTasks accepts any heading level and skips fenced code, as task-brief does", async () => {
-  const { planTasks } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const { planTasks } = await import("../../pi-extensions/plan-approval.ts");
   assert.deepEqual(planTasks("## Task 1: A\n```\n### Task 9: fake\n```\n#### Task 2 — B\n### Task 3\n"),
     [{ number: 1, title: "A" }, { number: 2, title: "B" }, { number: 3, title: "" }]);
 });
 
 test("planNote still names the plan and scripts when it finds no task headings", async () => {
-  const { planNote } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const { planNote } = await import("../../pi-extensions/plan-approval.ts");
   const note = planNote("docs/superpowers/plans/p.md", [], { started: {}, recorded: [] }, "/s");
   assert.match(note, /docs\/superpowers\/plans\/p\.md/);
   assert.ok(note.includes("/s/task-start docs/superpowers/plans/p.md"));
 });
 
 test("planNote lists commits since approval, and finished work is checked against its brief before it is recorded", async () => {
-  const { planTasks, planNote } = await import("../../pi-extensions/phase4-plan-approval.ts");
+  const { planTasks, planNote } = await import("../../pi-extensions/plan-approval.ts");
   const tasks = planTasks("### Task 1: Model\n### Task 2: Routes\n");
   const note = planNote("p.md", tasks, { started: {}, recorded: [] }, "/s", ["abc1234 feat: model"]);
   assert.match(note, /Commits since approval: abc1234 feat: model/);
   assert.match(note, /run task-start for it, check its brief's steps against that commit, do any step that is missing, then run task-done/);
   assert.doesNotMatch(note, /rather than redoing it/);
   assert.doesNotMatch(planNote("p.md", tasks, { started: {}, recorded: [] }, "/s", []), /Commits since approval/);
+});
+
+test("planNote takes the phase and test runner from the project config, and names neither without it", async () => {
+  const { planTasks, planNote } = await import("../../pi-extensions/plan-approval.ts");
+  const tasks = planTasks("### Task 1: Model\n");
+  const five = planNote("p.md", tasks, { started: {}, recorded: [] }, "/s", [], { phase: 5, pytest: "npm test --" });
+  assert.match(five, /^Phase 5 plan: p\.md\./);
+  assert.ok(five.includes("/s/task-done p.md N BASE -- npm test -- TEST_FILES"));
+  const bare = planNote("p.md", tasks, { started: {}, recorded: [] }, "/s");
+  assert.match(bare, /^Plan: p\.md\./);
+  assert.ok(bare.includes("/s/task-done p.md N BASE -- TEST_COMMAND"));
+  assert.doesNotMatch(bare, /uv run|pytest|Phase 4/);
 });

@@ -3,15 +3,12 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { matchPrompt, phaseHeadingPattern, projectConfig, type ProjectConfig } from "./project-config.ts";
 
-const ROADMAP = "specs/roadmap.md";
-const PHASE_4 = /^## Phase 4\b[^\r\n]*/m;
 const DONE = /\b(?:done|complete|completed)\b/i;
-const FINISH_PROMPT = "Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.";
-const CHECKS = ["uv run --frozen python -m pytest tests"];
 
-const FINISH_ONLY =
-  "The README finish prompt runs the test suite and marks Phase 4 done. " +
+const finishOnly = (phase: number) =>
+  `The README finish prompt runs the test suite and marks Phase ${phase} done. ` +
   "Leave the roadmap heading as it is and report your results.";
 
 const INTEGRATION_COMMANDS = new Set(["merge", "pull", "push", "switch"]);
@@ -44,16 +41,32 @@ function changesBranch(command: string): boolean {
   return false;
 }
 
-function phaseHeading(cwd: string): string | undefined {
-  const path = join(cwd, ROADMAP);
-  if (existsSync(path)) return readFileSync(path, "utf8").match(PHASE_4)?.[0];
+type Roadmap = { path: string; template: string };
+
+function roadmapOf(config: ProjectConfig): Roadmap | undefined {
+  if (config.roadmap && config.phaseHeading) return { path: config.roadmap, template: config.phaseHeading };
 }
 
-function implementation(cwd: string): string {
-  const paths = execFileSync("git", [
-    "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
-    "*.py", "templates", "pyproject.toml", "uv.lock",
-  ], { cwd, encoding: "utf8" }).split("\0").filter(Boolean);
+/** Every phase heading in the roadmap text, by phase number. */
+function headings(text: string, template: string): Map<number, string> {
+  return new Map([...text.matchAll(phaseHeadingPattern(template))].map((match) => [Number(match[1]), match[0]]));
+}
+
+function readRoadmap(cwd: string, roadmap: Roadmap): string | undefined {
+  const path = join(cwd, roadmap.path);
+  if (existsSync(path)) return readFileSync(path, "utf8");
+}
+
+/** Phases whose heading went from not done to done. */
+function newlyDone(before: Map<number, string>, after: Map<number, string>): number[] {
+  return [...after].filter(([n, heading]) => DONE.test(heading) && before.has(n) && !DONE.test(before.get(n)!))
+    .map(([n]) => n);
+}
+
+function implementation(cwd: string, pathspecs: string[]): string {
+  const paths = pathspecs.length ? execFileSync("git", [
+    "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...pathspecs,
+  ], { cwd, encoding: "utf8" }).split("\0").filter(Boolean) : [];
   const hash = createHash("sha256");
   for (const path of [...new Set(paths)].sort()) {
     const file = join(cwd, path);
@@ -64,13 +77,17 @@ function implementation(cwd: string): string {
 }
 
 export default function keepBranch(pi: ExtensionAPI) {
-  const before = new Map<string, string | undefined>();
+  const before = new Map<string, Map<number, string>>();
   let finishing = false;
 
   pi.on("input", async (event, ctx) => {
-    if (event.source === "extension" || event.text.trim() !== FINISH_PROMPT) return;
+    if (event.source === "extension") return;
+    const config = projectConfig(ctx.cwd);
+    const roadmap = roadmapOf(config);
+    const phase = matchPrompt(config.prompts?.finish, event.text)?.phase;
+    if (phase === undefined || !roadmap || !config.testSuite) return;
     if (finishing || event.streamingBehavior || !ctx.isIdle()) {
-      ctx.ui.notify("Wait for the current turn to end before finishing Phase 4.", "warning");
+      ctx.ui.notify(`Wait for the current turn to end before finishing Phase ${phase}.`, "warning");
       return { action: "handled" };
     }
 
@@ -79,9 +96,9 @@ export default function keepBranch(pi: ExtensionAPI) {
     let markedDone = false;
     let summary: string;
     try {
-      const revision = implementation(ctx.cwd);
+      const revision = implementation(ctx.cwd, config.implementation ?? []);
       let stable = true;
-      for (const command of CHECKS) {
+      for (const command of [config.testSuite]) {
         const [program, ...args] = command.split(" ");
         try {
           const result = await pi.exec(program, args, { cwd: ctx.cwd, timeout: 60_000 });
@@ -91,24 +108,25 @@ export default function keepBranch(pi: ExtensionAPI) {
         } catch (error) {
           checks.push({ command, passed: false, output: String(error) });
         }
-        stable = stable && implementation(ctx.cwd) === revision;
+        stable = stable && implementation(ctx.cwd, config.implementation ?? []) === revision;
       }
 
       if (stable && checks.every((check) => check.passed)) {
-        const path = join(ctx.cwd, ROADMAP);
-        const roadmap = readFileSync(path, "utf8");
-        const heading = roadmap.match(PHASE_4)?.[0];
-        if (!heading) throw new Error("Phase 4 heading is missing from specs/roadmap.md.");
-        if (!DONE.test(heading)) writeFileSync(path, roadmap.replace(PHASE_4, () => heading + " (Done)"));
+        const path = join(ctx.cwd, roadmap.path);
+        const text = readFileSync(path, "utf8");
+        const pattern = phaseHeadingPattern(roadmap.template, phase);
+        const heading = text.match(pattern)?.[0];
+        if (!heading) throw new Error(`Phase ${phase} heading is missing from ${roadmap.path}.`);
+        if (!DONE.test(heading)) writeFileSync(path, text.replace(pattern, () => heading + " (Done)"));
         markedDone = true;
-        summary = "Phase 4 is marked done in specs/roadmap.md. The current branch was kept as-is.";
+        summary = `Phase ${phase} is marked done in ${roadmap.path}. The current branch was kept as-is.`;
       } else {
         summary = stable
-          ? "Phase 4 was not marked done because a verification check failed."
-          : "Phase 4 was not marked done because implementation files changed during verification.";
+          ? `Phase ${phase} was not marked done because a verification check failed.`
+          : `Phase ${phase} was not marked done because implementation files changed during verification.`;
       }
     } catch (error) {
-      summary = "Phase 4 finish could not complete. " + (error instanceof Error ? error.message : String(error));
+      summary = `Phase ${phase} finish could not complete. ` + (error instanceof Error ? error.message : String(error));
     } finally {
       finishing = false;
     }
@@ -118,7 +136,7 @@ export default function keepBranch(pi: ExtensionAPI) {
       return `${passed ? "PASS" : "FAIL"} \`${command}\`${result ? "\n" + result : ""}`;
     });
     pi.sendMessage({
-      customType: "workshop-phase4-finish",
+      customType: "phase-finish",
       display: true,
       content: [summary, ...report].join("\n\n"),
       details: { markedDone, checks },
@@ -127,42 +145,45 @@ export default function keepBranch(pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", (event, ctx) => {
-    const heading = phaseHeading(ctx.cwd);
-    const pending = heading && !DONE.test(heading);
-    if (event.toolName === "bash" && typeof event.input.command === "string") {
-      if (changesBranch(event.input.command.trim())) return {
+    if (event.toolName === "bash" && typeof event.input.command === "string" && changesBranch(event.input.command.trim())) {
+      return {
         block: true,
-        reason: "Keep the current branch as-is for the workshop. Leave its commits on this branch and report the verification results.",
+        reason: "Keep the current branch as-is. Leave its commits on this branch and report the verification results.",
       };
-      before.set(event.toolCallId, heading);
     }
+    const roadmap = roadmapOf(projectConfig(ctx.cwd));
+    if (!roadmap) return;
+    const current = readRoadmap(ctx.cwd, roadmap);
+    const now = headings(current ?? "", roadmap.template);
+    if (event.toolName === "bash") before.set(event.toolCallId, now);
 
     if (
       (event.toolName === "write" || event.toolName === "edit") &&
-      typeof event.input.path === "string" && resolve(ctx.cwd, event.input.path) === join(ctx.cwd, ROADMAP)
+      typeof event.input.path === "string" && resolve(ctx.cwd, event.input.path) === join(ctx.cwd, roadmap.path)
     ) {
-      if (pending) {
-        let next = event.toolName === "write" ? event.input.content : readFileSync(join(ctx.cwd, ROADMAP), "utf8");
-        if (event.toolName === "edit" && Array.isArray(event.input.edits)) {
-          for (const { oldText, newText } of event.input.edits) next = next.replace(oldText, () => newText);
-        }
-        const nextHeading = typeof next === "string" ? next.match(PHASE_4)?.[0] : undefined;
-        if (nextHeading && DONE.test(nextHeading)) return { block: true, reason: FINISH_ONLY };
+      let next = event.toolName === "write" ? event.input.content : current ?? "";
+      if (event.toolName === "edit" && Array.isArray(event.input.edits)) {
+        for (const { oldText, newText } of event.input.edits) next = next.replace(oldText, () => newText);
       }
-      before.set(event.toolCallId, heading);
+      const marked = typeof next === "string" ? newlyDone(now, headings(next, roadmap.template)) : [];
+      if (marked.length) return { block: true, reason: finishOnly(marked[0]) };
+      before.set(event.toolCallId, now);
     }
   });
 
   pi.on("tool_result", (event, ctx) => {
     if (!before.has(event.toolCallId)) return;
-    const previous = before.get(event.toolCallId);
+    const previous = before.get(event.toolCallId)!;
     before.delete(event.toolCallId);
-
-    // A shell script can mark the roadmap without naming it in the tool input.
-    if (previous && !DONE.test(previous) && DONE.test(phaseHeading(ctx.cwd) ?? "")) {
-      const path = join(ctx.cwd, ROADMAP);
-      writeFileSync(path, readFileSync(path, "utf8").replace(PHASE_4, () => previous));
-      return { isError: true, content: [...event.content, { type: "text" as const, text: FINISH_ONLY }] };
-    }
+    const roadmap = roadmapOf(projectConfig(ctx.cwd));
+    const text = roadmap && readRoadmap(ctx.cwd, roadmap);
+    if (!roadmap || text === undefined) return;
+    // A shell script can mark the roadmap without naming it in the tool input: put the headings back.
+    const marked = newlyDone(previous, headings(text, roadmap.template));
+    if (!marked.length) return;
+    let restored = text;
+    for (const n of marked) restored = restored.replace(phaseHeadingPattern(roadmap.template, n), () => previous.get(n)!);
+    writeFileSync(join(ctx.cwd, roadmap.path), restored);
+    return { isError: true, content: [...event.content, { type: "text" as const, text: finishOnly(marked[0]) }] };
   });
 }

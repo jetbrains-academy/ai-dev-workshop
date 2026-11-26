@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -14,6 +14,8 @@ test("Pi saves frozen pytest commands before returning a plan write or edit", as
   const cwd = await mkdtemp(path.join(tmpdir(), "pi-plan-commands-"));
   context.after(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(path.join(cwd, "docs/superpowers/plans"), { recursive: true });
+  await mkdir(path.join(cwd, ".pi"), { recursive: true });
+  await writeFile(path.join(cwd, ".pi/project.json"), await readFile(new URL("../../.pi/project.json", import.meta.url)));
   const extensions = settings.extensions.map((entry) => fileURLToPath(new URL(entry, settingsPath)));
   const loaded = await sdk.discoverAndLoadExtensions(extensions, cwd, cwd);
   assert.deepEqual(loaded.errors, []);
@@ -48,7 +50,7 @@ test("Pi saves frozen pytest commands before returning a plan write or edit", as
 
   const write = await run("write", { path: plan, content: draft });
   assert.equal(await readFile(path.join(cwd, plan), "utf8"), expected);
-  assert.match(write.content.at(-1).text, /frozen pytest and Python/);
+  assert.match(write.content.at(-1).text, /project's test and Python commands/);
   assert.match(write.content.at(-1).text, /Replaced 1 server start with/);
   await run("edit", { path: path.join(cwd, plan), edits: [
     { oldText: "Run: `" + frozen + " tests/test_resolve.py -v`", newText: "Run: `pytest -q`" },

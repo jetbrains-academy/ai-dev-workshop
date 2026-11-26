@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import extension from "../../pi-extensions/bash-timeout.ts";
+import { fileURLToPath } from "node:url";
+const repo = fileURLToPath(new URL("../../", import.meta.url));
 
 function handlers() {
   const registered = new Map();
@@ -8,16 +10,16 @@ function handlers() {
   return registered;
 }
 
-async function call(toolName, input) {
+async function call(toolName, input, cwd = repo) {
   const event = { type: "tool_call", toolName, input };
-  const decision = await handlers().get("tool_call")(event);
+  const decision = await handlers().get("tool_call")(event, { cwd });
   assert.equal(decision, undefined, "the call is never blocked");
   return event.input;
 }
 
 async function result(toolName, text, isError) {
   const event = Object.freeze({ type: "tool_result", toolName, content: Object.freeze([{ type: "text", text }]), isError });
-  return (await handlers().get("tool_result")(event))?.content ?? event.content;
+  return (await handlers().get("tool_result")(event, { cwd: repo }))?.content ?? event.content;
 }
 
 test("gives a bash call without a timeout thirty seconds", async () => {
@@ -59,5 +61,17 @@ test("adds nothing to other results", async () => {
     ["read", "Command timed out after 30 seconds", true],
   ]) {
     assert.deepEqual(await result(tool, text, isError), [{ type: "text", text }]);
+  }
+});
+
+test("without a shell limit in the project config, bash calls are left alone", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const empty = await mkdtemp(path.join(tmpdir(), "pi-no-config-"));
+  try {
+    assert.deepEqual(await call("bash", { command: "ls" }, empty), { command: "ls" });
+  } finally {
+    await rm(empty, { recursive: true, force: true });
   }
 });
