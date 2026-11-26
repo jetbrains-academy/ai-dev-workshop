@@ -425,10 +425,16 @@ test("once every task is recorded and the suite passes, the next call ends the t
   await result(taskDone(2), ledgerLine(2));
   assert.equal((await call("bash", { command: "git add app.py && git commit -m done" }))?.block, undefined);
   assert.equal((await call("bash", { command: "git status" }))?.block, undefined);
-  const decision = await call("read", { path: "tests/test_phase4.py" });
-  assert.equal(decision?.block, true);
-  assert.equal(decision.terminate, true);
-  assert.match(decision.reason, /Every task in the plan is recorded and the full test suite passes/);
+  const first = await call("read", { path: "tests/test_phase4.py" });
+  assert.equal(first?.block, true);
+  assert.equal(first.terminate, undefined, "the first refusal leaves room for the final report");
+  assert.match(first.reason, /Every task in the plan is recorded and the full test suite passes/);
+  assert.match(first.reason, /commit them with git/);
+  assert.match(first.reason, /write your final report now, without another tool call/);
+  assert.equal((await call("bash", { command: "git commit -am leftovers" }))?.block, undefined, "git still runs");
+  const second = await call("bash", { command: "uv run --frozen python -m pytest" });
+  assert.equal(second?.block, true);
+  assert.equal(second.terminate, true, "a second non-git call ends the turn");
   assert.deepEqual(errors, []);
 });
 

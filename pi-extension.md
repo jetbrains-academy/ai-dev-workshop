@@ -221,8 +221,11 @@ two hit the output cap after about three minutes. Planning-stage tool results
 longer than 200 characters, mostly skill text, are replaced by a short stub in
 each request; the call and its result keep their place. And when `task-done`
 records the plan's last task, the guard runs the full suite; if it passes, the
-next tool call other than `git` is refused and ends the turn, so Pi reports
-instead of polishing (four runs spent 135 to 322 seconds after that point).
+next tool call other than `git` is refused with a request to commit anything
+left and write the final report, and a second such call ends the turn, so Pi
+reports instead of polishing (four runs spent 135 to 322 seconds after that
+point). Ending the turn on the first refusal left it without a report in 5 of
+6 runs.
 
 The tracking has known gaps. A shell command that chains `task-done` and
 `task-start` records only the first. Pi sometimes skips `task-start` or passes

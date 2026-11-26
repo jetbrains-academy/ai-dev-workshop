@@ -101,7 +101,7 @@ type Phase4State =
   | { status: "design" }
   | { status: "planning"; previousPlans: Record<string, string> }
   | { status: "approved"; plan?: string; progress?: PlanProgress; head?: string; staleLedger?: number[];
-      approvedAt?: number; complete?: boolean }
+      approvedAt?: number; complete?: boolean; reportAsked?: boolean }
   | { status: "finished" };
 
 const unlocked = (state: Phase4State) => state.status === "approved" || state.status === "finished";
@@ -213,8 +213,10 @@ function readOnlyShell(command: unknown): boolean {
 
 const PLAN_NOTE = "workshop-phase4-plan";
 
-const ALL_DONE = "Every task in the plan is recorded and the full test suite passes. Stop here and give your final " +
-  "report; the finish prompt runs the checks.";
+const ALL_DONE = "Every task in the plan is recorded and the full test suite passes. If `git status` shows " +
+  "uncommitted changes, commit them with git; then write your final report now, without another tool call. " +
+  "The finish prompt runs the checks.";
+const ALL_DONE_FINAL = "Every task in the plan is recorded and the full test suite passes, so this turn ends here.";
 
 export function compactionSummary(plan: string, note: string | undefined, status: string,
   fileOps: { read: Set<string>; written: Set<string>; edited: Set<string> }): string {
@@ -400,11 +402,18 @@ export default function phase4PlanApproval(pi: ExtensionAPI) {
   pi.on("tool_call", (event, ctx) => {
     const state = stateFor(ctx);
     // Once every task is recorded and the suite passes, work after that is a tail the audience waits
-    // through (135 to 322 s in four runs). Git still runs, so leftover work can be committed.
+    // through (135 to 322 s in four runs). Git still runs, so leftover work can be committed. The first
+    // refusal asks for the final report; ending the turn on it left the turn without one, and the
+    // driver's `Continue.` drew more refusals (5 of 6 runs, 2026-11-25). A second refusal ends the turn.
     if (state?.status === "approved" && state.complete) {
       const command = (event.input as { command?: unknown }).command;
       const git = event.toolName === "bash" && typeof command === "string" && /^\s*git\b/.test(command);
-      if (!git) return { block: true, reason: `${blockedCall(event.toolName, event.input as Record<string, unknown>)} ${ALL_DONE}`, terminate: true };
+      if (!git) {
+        const call = blockedCall(event.toolName, event.input as Record<string, unknown>);
+        if (state.reportAsked) return { block: true, reason: `${call} ${ALL_DONE_FINAL}`, terminate: true };
+        pi.appendEntry<Phase4State>(ENTRY, { ...state, reportAsked: true });
+        return { block: true, reason: `${call} ${ALL_DONE}` };
+      }
     }
     if (!state || unlocked(state) || READ_TOOLS.has(event.toolName)) return;
     if ((event.toolName === "write" || event.toolName === "edit") && artifactPath(ctx.cwd, event.input.path)) return;
