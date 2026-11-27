@@ -4,7 +4,7 @@
 |-------|--------|---------|-------|
 | Language | Python 3 | — | Run through the project environment with `uv run` |
 | Package manager | uv | — | Dependencies in `pyproject.toml`, locked in `uv.lock`; use `--frozen` for checks |
-| Web framework | fastapi[standard] | 0.115.10 | ASGI, type-driven |
+| Web framework | fastapi[standard] | 0.165.0 | ASGI, type-driven |
 | Server | Uvicorn | — | `app.py` starts the app with reload via `uv run python app.py` |
 | Templates | Jinja2 | | Bundled with FastAPI/Starlette |
 | CSS | Bootstrap 5 | | CDN link, no npm/build step |

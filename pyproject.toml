@@ -1,9 +1,9 @@
 [project]
 name = "agentclinic"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "fastapi[standard]==0.115.10",
+    "fastapi[standard]==0.165.0",
     "jinja2",
 ]
 
