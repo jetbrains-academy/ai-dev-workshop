@@ -1,0 +1,2 @@
+# Keep Git metadata out of recursive file listings.
+.git
