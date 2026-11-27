@@ -20,6 +20,7 @@ const withConfig = async (cwd) => {
 const NOTE_CONTEXT = { phase: 4, pytest: "uv run --frozen python -m pytest" };
 const skills = sdk.loadSkillsFromDir({ dir: path.join(process.env.SUPERPOWERS_DIR, "skills"), source: "user" }).skills;
 const writingPlans = skills.find((skill) => skill.name === "writing-plans").filePath;
+const executingSkill = skills.find((skill) => skill.name === "executing-plans");
 
 async function setup(context, reuse) {
   const cwd = reuse?.cwd ?? await mkdtemp(path.join(tmpdir(), "pi-phase4-approval-"));
@@ -49,7 +50,7 @@ async function setup(context, reuse) {
   const result = (command, text, isError = false) => runner.emitToolResult({ type: "tool_result", toolCallId: "b",
     toolName: "bash", input: { command }, content: [{ type: "text", text }], isError });
   const emit = (event) => runner.emit(event);
-  return { cwd, session, errors, say, start, call, sent, compact, result, emit };
+  return { cwd, session, errors, say, start, call, sent, compact, result, emit, runner };
 }
 
 const brainstorm = "Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.";
@@ -205,7 +206,7 @@ test("a missing or unreadable planning skill warns with its path and allows plan
 });
 
 const APPROVAL = "The plan looks good. Proceed with native execution.";
-const scripts = path.join(path.dirname(skills.find((skill) => skill.name === "executing-plans").filePath), "scripts");
+const scripts = path.join(executingSkill.baseDir, "scripts");
 const twoTasks = "# Plan\n\n### Task 1: Model\n\n- [ ] step\n\n### Task 2: Routes\n\n- [ ] step\n";
 const planMessages = (result) => result.messages.filter((m) => m.customType === "plan-note");
 
@@ -248,8 +249,9 @@ const taskStart = (n) => `${scripts}/task-start ${plan} ${n}`;
 const taskDone = (n) => `${scripts}/task-done ${plan} ${n} abc1234 -- uv run --frozen python -m pytest tests/test_models.py`;
 const ledgerLine = (n) => `ledger: Task ${n}: complete (commits abc1234..def5678, tests: pytest → 1 passed)`;
 
-async function approvedRun(context) {
+async function approvedRun(context, { withGit = false } = {}) {
   const run = await setup(context);
+  if (withGit) gitInit(run.cwd);
   await run.say(planning);
   await run.start(planning);
   await writeFile(path.join(run.cwd, plan), twoTasks);
@@ -259,6 +261,36 @@ async function approvedRun(context) {
   run.note = (progress) => planNote(plan, planTasks(twoTasks), progress, scripts, [], NOTE_CONTEXT);
   return run;
 }
+
+test("execution projects the pinned skill's human-review handoff on load and reread", async (context) => {
+  const { cwd, errors, runner } = await approvedRun(context);
+  const file = executingSkill.filePath;
+  const upstream = await readFile(file, "utf8");
+  const directive = "Use superpowers:finishing-a-development-branch";
+  assert.equal(upstream.split(directive).length - 1, 3, "review the projection when the pinned skill changes");
+  const suffix = `\n</skill>\n\n${APPROVAL}`;
+  const block = `<skill name="executing-plans" location="${file}">\n${upstream}${suffix}`;
+  const messages = [{ role: "user", content: [{ type: "text", text: block }], timestamp: Date.now() }];
+  const projected = await runner.emitContext(messages);
+  const loaded = projected[0].content[0].text;
+  assert.ok(loaded.endsWith(suffix));
+  assert.match(loaded, /## Final Review/);
+  assert.match(loaded, /Report the final review and stop for human verification/);
+  assert.doesNotMatch(loaded, /finishing-a-development-branch/);
+  assert.equal(messages[0].content[0].text, block);
+
+  const input = { path: path.relative(cwd, file) };
+  const read = await sdk.createReadTool(cwd).execute("read-skill", input, undefined, undefined);
+  const reread = await runner.emitToolResult({
+    type: "tool_result", toolName: "read", toolCallId: "read-skill", input, ...read, isError: false,
+  });
+  const rereadText = reread.content.map((part) => part.text).join("\n");
+  assert.match(rereadText, /## Final Review/);
+  assert.match(rereadText, /Report the final review and stop for human verification/);
+  assert.doesNotMatch(rereadText, /finishing-a-development-branch/);
+  assert.equal(await readFile(file, "utf8"), upstream);
+  assert.deepEqual(errors, []);
+});
 
 test("after a compaction mid-task, Pi is told to continue that task", async (context) => {
   const { errors, result, compact, sent, note } = await approvedRun(context);
@@ -460,16 +492,28 @@ async function fakeUv(context, exitCode) {
 
 test("completion reports a green suite and leaves the final review open", async (context) => {
   await fakeUv(context, 0);
-  const { cwd, errors, result, call, emit } = await approvedRun(context);
+  const { cwd, errors, result, call, emit } = await approvedRun(context, { withGit: true });
+  const base = git(cwd, "rev-parse", "HEAD");
+  git(cwd, "-c", "user.email=t@localhost", "-c", "user.name=T", "commit", "-q", "--allow-empty", "-m", "implementation");
   await result(taskDone(1), ledgerLine(1));
   assert.equal((await call("read", { path: "app.py" }))?.block, undefined, "one task left: keep working");
   const completed = await result(taskDone(2), ledgerLine(2));
   assert.equal(completed?.content[0].text, ledgerLine(2));
   assert.match(completed.content[1].text, /Every task in the plan is recorded and the full test suite passes/);
-  const handoff = /final review.*report.*stop for human verification.*skip finishing-a-development-branch/i;
-  assert.match(completed.content[1].text, handoff);
   const compacted = await emit(compactEvent(cwd));
-  assert.match(compacted.compaction.summary, handoff);
+  const skillRoot = path.dirname(executingSkill.baseDir);
+  const script = path.join(skillRoot, "subagent-driven-development/scripts/review-package");
+  const reviewer = path.join(skillRoot, "requesting-code-review/code-reviewer.md");
+  const review = `'${script}' '${plan}' ${base} HEAD`;
+  for (const text of [completed.content[1].text, compacted.compaction.summary]) {
+    assert.ok(text.includes(review), text);
+    assert.ok(text.includes(reviewer), text);
+    assert.match(text, /report.*stop for human verification/i);
+    assert.doesNotMatch(text, /finishing-a-development-branch/);
+  }
+  const command = completed.content[1].text.match(/run `([^`]+)`/)?.[1];
+  assert.equal(command, review);
+  assert.match(execFileSync("bash", ["-c", command], { cwd, encoding: "utf8" }), /wrote .*: 1 commit\(s\)/);
   assert.equal(await result(taskDone(2), ledgerLine(2)), undefined, "duplicate completion adds no reminder");
   assert.equal(await call("read", { path: "tests/test_phase4.py" }), undefined);
   assert.equal(await call("bash", { command: "uv run --frozen python -m pytest tests" }), undefined);

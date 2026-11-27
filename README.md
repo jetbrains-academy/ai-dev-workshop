@@ -70,7 +70,7 @@ select Mellum through LM Studio. Set Pi’s thinking level to High and use the
 [60K context setting](setup.md#lm-studio).
 
 ```
-/skill:brainstorming Only write the design document under docs/superpowers/specs/. Brainstorm Phase 4 from specs/roadmap.md, save the design, and stop for approval.
+/skill:brainstorming IMPORTANT: Do not edit code during this turn. Brainstorm Phase 4 from specs/roadmap.md. Save the design under docs/superpowers/specs/ and stop for approval.
 ```
 
 If Pi asks brainstorming questions, reply with this.
@@ -82,7 +82,7 @@ Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Sav
 After approving the design, send the planning prompt.
 
 ```
-/skill:writing-plans The Phase 4 design looks good. Proceed with planning in at most three numbered tasks. Use the attached FastAPI guidance to write runnable tests in the task that owns each behavior.
+/skill:writing-plans The Phase 4 design looks good. Proceed with planning in at most three numbered tasks. Use the attached FastAPI guidance and put runnable tests in the task that owns each behavior. Check the assigned-ID POST's 303 and Location with follow_redirects=False, pair it with an unknown-ID 404 test, and isolate shared state. Check the parsed form for the assigned ID, then verify the same card shows Closed and its form is gone.
 ```
 
 ```

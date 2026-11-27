@@ -220,17 +220,30 @@ function readOnlyShell(command: unknown): boolean {
 
 const PLAN_NOTE = "plan-note";
 
-const FINAL_REVIEW_HANDOFF = "Complete the executing-plans final review, report the results, and stop for human verification. " +
-  "Skip finishing-a-development-branch. The user's finish prompt runs the checks and marks the phase done.";
-const ALL_DONE = "Every task in the plan is recorded and the full test suite passes. " + FINAL_REVIEW_HANDOFF;
+const REPORT_AND_STOP = "Report the final review and stop for human verification";
+const FINAL_REVIEW_HANDOFF = "Complete the executing-plans final review. " + REPORT_AND_STOP +
+  ". The user's finish prompt runs the checks and marks the phase done.";
+const ALL_DONE = "Every task in the plan is recorded and the full test suite passes.";
+
+function finalReviewInstructions(plan: string, base: string | undefined, skill: string | undefined): string {
+  if (!base || !skill) return FINAL_REVIEW_HANDOFF;
+  const skills = dirname(dirname(skill));
+  const script = join(skills, "subagent-driven-development", "scripts", "review-package");
+  const reviewer = join(skills, "requesting-code-review", "code-reviewer.md");
+  const quote = (arg: string) => "'" + arg.replaceAll("'", "'\"'\"'") + "'";
+  return `For the final review, run \`${quote(script)} ${quote(plan)} ${base} HEAD\` from the project root. ` +
+    `Read the package it writes and \`${reviewer}\`. Include any uncommitted implementation changes in the review. ` +
+    FINAL_REVIEW_HANDOFF;
+}
 
 export function compactionSummary(plan: string, note: string | undefined, status: string,
-  fileOps: { read: Set<string>; written: Set<string>; edited: Set<string> }, phase?: number): string {
+  fileOps: { read: Set<string>; written: Set<string>; edited: Set<string> }, phase?: number,
+  review = FINAL_REVIEW_HANDOFF): string {
   const changed = [...new Set([...fileOps.edited, ...fileOps.written])].sort();
   return [
     `Summary written by the ${phase === undefined ? "" : `Phase ${phase} `}plan guard from its own records (no model summary).`,
     `The user approved the plan ${plan}; you are executing it with the executing-plans skill, one task at a time.`,
-    note ?? `Every task in the plan is recorded. Run the full test suite and commit anything left. ${FINAL_REVIEW_HANDOFF}`,
+    note ?? `Every task in the plan is recorded. Run the full test suite and commit anything left. ${review}`,
     `Uncommitted changes: ${status.trim() ? status.trim().split("\n").join("; ") : "none"}.`,
     `Files read: ${fileOps.read.size ? [...fileOps.read].sort().join(", ") : "none"}.`,
     `Files changed: ${changed.length ? changed.join(", ") : "none"}.`,
@@ -239,6 +252,31 @@ export function compactionSummary(plan: string, note: string | undefined, status
 }
 
 type ContextMessage = ContextEvent["messages"][number];
+
+function adaptExecutingPlans(text: string): string {
+  // The pinned skill names the branch-finishing step in the process diagram and in the Finish section.
+  return text.replaceAll("Use superpowers:finishing-a-development-branch", REPORT_AND_STOP);
+}
+
+function projectExecutingPlans(messages: ContextMessage[], path: string): ContextMessage[] | undefined {
+  const opening = `<skill name="executing-plans" location="${path}">`;
+  let changed = false;
+  const project = (text: string) => {
+    if (!text.startsWith(opening)) return text;
+    const end = text.indexOf("\n</skill>");
+    if (end < 0) return text;
+    const body = text.slice(0, end);
+    const adapted = adaptExecutingPlans(body);
+    changed ||= adapted !== body;
+    return adapted + text.slice(end);
+  };
+  const out = messages.map((message) => message.role !== "user" ? message : {
+    ...message,
+    content: typeof message.content === "string" ? project(message.content) : message.content.map((part) =>
+      part.type === "text" ? { ...part, text: project(part.text) } : part),
+  });
+  return changed ? out : undefined;
+}
 
 export function stubPlanningResults(messages: ContextMessage[], approvedAt: number): ContextMessage[] | undefined {
   let changed = false;
@@ -307,7 +345,13 @@ export default function planApproval(pi: ExtensionAPI) {
   // printed ledger line records it. Kept in session entries, since the workspace can be deleted.
   pi.on("tool_result", (event, ctx) => {
     const state = stateFor(ctx);
-    if (state?.status !== "approved" || !state.plan || event.toolName !== "bash" || event.isError) return;
+    if (state?.status !== "approved" || !state.plan || event.isError) return;
+    if (event.toolName === "read" && executingPlans && typeof event.input.path === "string" &&
+      resolve(ctx.cwd, event.input.path) === executingPlans) {
+      return { content: event.content.map((part) => part.type === "text"
+        ? { ...part, text: adaptExecutingPlans(part.text) } : part) };
+    }
+    if (event.toolName !== "bash") return;
     const command = (event.input as { command?: unknown }).command;
     if (typeof command !== "string") return;
     const script = command.match(/executing-plans\/scripts\/(task-start|task-done)\s+(\S+)\s+(\d+)\b/);
@@ -328,7 +372,8 @@ export default function planApproval(pi: ExtensionAPI) {
     if (script[1] === "task-done") {
       const tasks = planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8"));
       if (tasks.length && tasks.every((task) => progress.recorded.includes(task.number)) && suitePasses(ctx.cwd)) {
-        return { content: [...event.content, { type: "text", text: ALL_DONE }] };
+        const review = finalReviewInstructions(state.plan, state.head, executingPlans);
+        return { content: [...event.content, { type: "text", text: `${ALL_DONE}\n${review}` }] };
       }
     }
   });
@@ -361,7 +406,7 @@ export default function planApproval(pi: ExtensionAPI) {
     if (state?.status !== "approved" || !state.plan) return;
     const note = currentNote(ctx, state);
     const summary = compactionSummary(state.plan, note, gitOutput(ctx.cwd, "status", "--short") ?? "",
-      event.preparation.fileOps, state.phase);
+      event.preparation.fileOps, state.phase, finalReviewInstructions(state.plan, state.head, executingPlans));
     return { compaction: { summary, firstKeptEntryId: event.preparation.firstKeptEntryId,
       tokensBefore: event.preparation.tokensBefore } };
   });
@@ -371,8 +416,9 @@ export default function planApproval(pi: ExtensionAPI) {
   // result keep their place, so the conversation stays well formed.
   pi.on("context", (event, ctx) => {
     const state = stateFor(ctx);
-    if (state?.status !== "approved" || !state.approvedAt) return;
-    const messages = stubPlanningResults(event.messages, state.approvedAt);
+    if (state?.status !== "approved") return;
+    let messages = state.approvedAt ? stubPlanningResults(event.messages, state.approvedAt) : undefined;
+    if (executingPlans) messages = projectExecutingPlans(messages ?? event.messages, executingPlans) ?? messages;
     return messages ? { messages } : undefined;
   });
 

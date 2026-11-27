@@ -216,7 +216,9 @@ fired and was removed.
 
 The README's approval prompt starts with `/skill:executing-plans`, so the skill
 is part of the execution prompt; the guard strips that prefix before matching
-the approval text. When approval unlocks execution, the guard adds one note to
+the approval text. The guard adapts the model's copy of the skill, including
+direct rereads, so its diagram and Finish section end at a report for human
+verification. When approval unlocks execution, the guard adds one note to
 that turn: the plan's path, its tasks, the exact `task-start` and `task-done`
 commands, and an instruction to work the tasks in order, commit as each task
 says, and not move on until `task-done` records the task. If several plans
@@ -273,8 +275,10 @@ two hit the output cap after about three minutes. Planning-stage tool results
 longer than 200 characters, mostly skill text, are replaced by a short stub in
 each request; the call and its result keep their place. And when `task-done`
 records the plan's last task, the guard runs the full suite; if it passes, the
-tool result confirms both checks and directs Pi to complete the final review
-and report. Review and verification tools remain available.
+tool result confirms both checks and supplies the local reviewer path and
+`review-package` command with the commit recorded at approval. Pi reviews the
+package and any uncommitted implementation changes, then reports and stops for
+human verification. The compaction summary can give Pi the same review paths.
 
 The tracking has known gaps. A shell command that chains `task-done` and
 `task-start` records only the first. Pi sometimes skips `task-start` or passes
