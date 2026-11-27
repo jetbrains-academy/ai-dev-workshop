@@ -181,12 +181,10 @@ The guard records approval in the Pi session branch.
 
 Its refusals depend on the stage. While brainstorming, it says the turn only
 saves the design. While planning with no new plan yet, it names the
-`writing-plans` skill's path and says to save the plan and end the turn. Both
-say that only the user's approval unlocks code, because looping models tried
-to unlock the guard by editing design files. Once a new plan is saved, a
-refused call also sets `terminate`, so Pi ends the turn instead of letting the
-model keep trying. In the 2026-11-23 trial, two of 16 planning turns looped
-against the old refusal (42 and 75 refusals), and one hit the 20-minute limit.
+`writing-plans` skill's path and asks Pi to save and self-review the plan.
+Once saved, a refusal names the plan and directs Pi back to self-review.
+Blocking the call leaves the turn open for revisions and a handoff. Only
+the user's approval unlocks implementation.
 
 Every refusal opens by naming the call it answers, for example "Blocked just
 now: your `bash` call `find . -name "SKILL.md" 2>/dev/null || ls`." In a
@@ -265,11 +263,8 @@ two hit the output cap after about three minutes. Planning-stage tool results
 longer than 200 characters, mostly skill text, are replaced by a short stub in
 each request; the call and its result keep their place. And when `task-done`
 records the plan's last task, the guard runs the full suite; if it passes, the
-next tool call other than `git` is refused with a request to commit anything
-left and write the final report, and a second such call ends the turn, so Pi
-reports instead of polishing (four runs spent 135 to 322 seconds after that
-point). Ending the turn on the first refusal left it without a report in 5 of
-6 runs.
+tool result confirms both checks and directs Pi to complete the final review
+and report. Review and verification tools remain available.
 
 The tracking has known gaps. A shell command that chains `task-done` and
 `task-start` records only the first. Pi sometimes skips `task-start` or passes

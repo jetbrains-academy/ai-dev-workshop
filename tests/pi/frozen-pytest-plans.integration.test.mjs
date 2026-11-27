@@ -62,3 +62,30 @@ test("Pi saves frozen pytest commands before returning a plan write or edit", as
   await run("write", { path: "docs/design.md", content: draft });
   assert.equal(await readFile(path.join(cwd, "docs/design.md"), "utf8"), draft);
 });
+
+test("Pi warns with the plan line for a pass-only test and leaves the draft intact", async (context) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), "pi-plan-stubs-"));
+  context.after(() => rm(cwd, { recursive: true, force: true }));
+  const extension = fileURLToPath(new URL("../../pi-extensions/frozen-pytest-plans.ts", import.meta.url));
+  const loaded = await sdk.discoverAndLoadExtensions([extension], cwd, cwd);
+  assert.deepEqual(loaded.errors, []);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sdk.SessionManager.inMemory(cwd), undefined);
+  const plan = "docs/superpowers/plans/phase4.md";
+  const draft = [
+    "# Phase 4", "", "```python", "def test_route():", "    # Add request", "    pass", "",
+    "def test_board():", "    pass", "    assert True", "",
+    "def helper():", "    pass", "```", "",
+    "```text", "def test_example():", "    pass", "```", "",
+  ].join("\n");
+  const input = { path: plan, content: draft };
+  const result = await sdk.createWriteTool(cwd).execute("write", input, undefined, undefined);
+  const response = await runner.emitToolResult({
+    type: "tool_result", toolCallId: "write", toolName: "write", input, ...result, isError: false,
+  });
+
+  assert.deepEqual(response?.content, [
+    ...result.content,
+    { type: "text", text: `Warning: ${plan}:6: test_route contains only \`pass\`. Replace it with a complete test.` },
+  ]);
+  assert.equal(await readFile(path.join(cwd, plan), "utf8"), draft);
+});

@@ -100,6 +100,43 @@ export function freezePlanCommands(markdown: string, config: ProjectConfig): Fro
   return { markdown: frozen, serverStarts };
 }
 
+function passOnlyTests(markdown: string): { name: string; line: number }[] {
+  const lines = markdown.split(/\r?\n/);
+  const stubs: { name: string; line: number }[] = [];
+  let fence = "";
+  let python = false;
+  for (const [index, line] of lines.entries()) {
+    const marker = line.match(/^\s*(`{3,}|~{3,})[ \t]*(\S*)/);
+    if (!fence && marker) {
+      fence = marker[1];
+      python = /^(?:py|python3?)$/i.test(marker[2]);
+      continue;
+    }
+    if (fence && marker && marker[1].startsWith(fence) && !marker[2]) {
+      fence = "";
+      continue;
+    }
+    if (!fence || !python) continue;
+
+    const test = line.match(/^([ \t]*)(?:async\s+)?def\s+(test_\w+)\s*\(.*\)(?:\s*->\s*[^:]+)?:\s*(?:#.*)?$/);
+    if (!test) continue;
+    let passLine: number | undefined;
+    for (let body = index + 1; body < lines.length; body++) {
+      const text = lines[body].trim();
+      if (!text || text.startsWith("#")) continue;
+      const indent = lines[body].length - lines[body].trimStart().length;
+      if (indent <= test[1].length) break;
+      if (passLine !== undefined || !/^pass(?:\s*#.*)?$/.test(text)) {
+        passLine = undefined;
+        break;
+      }
+      passLine = body + 1;
+    }
+    if (passLine !== undefined) stubs.push({ name: test[2], line: passLine });
+  }
+  return stubs;
+}
+
 function plansIn(cwd: string): Map<string, string> {
   const root = join(cwd, PLANS);
   if (!existsSync(root) || realpathSync(root) !== join(realpathSync(cwd), PLANS)) return new Map();
@@ -136,6 +173,7 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
       changed = content === undefined ? [] : [[target, content]];
     }
     const corrected: string[] = [];
+    const warnings: string[] = [];
     let serverStarts = 0;
     let taskSteps = 0;
     const config = projectConfig(ctx.cwd);
@@ -143,12 +181,19 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
       const headed = taskHeadings(content);
       const frozen = freezePlanCommands(nativePlanHeader(headed.markdown), config);
       taskSteps += headed.renamed;
+      const plan = relative(ctx.cwd, path);
+      for (const { name, line } of passOnlyTests(frozen.markdown)) {
+        warnings.push(`Warning: ${plan}:${line}: ${name} contains only \`pass\`. Replace it with a complete test.`);
+      }
       if (frozen.markdown === content) continue;
       writeFileSync(path, frozen.markdown);
-      corrected.push(relative(ctx.cwd, path));
+      corrected.push(plan);
       serverStarts += frozen.serverStarts;
     }
-    if (!corrected.length) return;
+    if (!corrected.length) {
+      if (warnings.length) return { content: [...event.content, { type: "text", text: warnings.join("\n") }] };
+      return;
+    }
     let text = `Applied the project's test and Python commands in ${corrected.join(", ")}.` +
       (config.python ? ` The saved plan uses \`${config.python}\`.` : "");
     if (serverStarts) {
@@ -159,6 +204,6 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
       text += ` Named ${taskSteps} numbered heading${taskSteps === 1 ? "" : "s"} "Task N:" so executing-plans' ` +
         "task-start can find each task.";
     }
-    return { content: [...event.content, { type: "text", text }] };
+    return { content: [...event.content, { type: "text", text: [text, ...warnings].join("\n") }] };
   });
 }

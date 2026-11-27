@@ -89,18 +89,20 @@ test("while planning with no new plan, refusals name the writing-plans skill and
   assert.deepEqual(errors, []);
 });
 
-test("once a new plan is saved, a refused code edit ends the turn", async (context) => {
+test("a saved plan stays editable for self-review while implementation remains locked", async (context) => {
   const { cwd, errors, say, start, call } = await setup(context);
   await writeFile(path.join(cwd, "docs/superpowers/plans/old.md"), "# Earlier phase\n");
   await say(planning);
   await start(planning);
   await writeFile(path.join(cwd, "docs/superpowers/plans/phase-4.md"), "# Plan\n");
-  for (const [toolName, input] of [["edit", editModel], ["bash", { command: "echo testing guard" }]]) {
+  for (const [toolName, input] of [["edit", editModel], ["bash", { command: "uv run --frozen python -m pytest tests/test_board.py -v" }]]) {
     const refused = await call(toolName, input);
     assert.equal(refused?.block, true);
-    assert.equal(refused.terminate, true);
+    assert.equal(refused.terminate, undefined);
     assert.match(refused.reason, /docs\/superpowers\/plans\/phase-4\.md/);
+    assert.match(refused.reason, /self-review/);
   }
+  assert.equal((await call("edit", { ...editModel, path: "docs/superpowers/plans/phase-4.md" }))?.block, undefined);
   assert.equal((await call("read", { path: "models.py" }))?.block, undefined);
   assert.deepEqual(errors, []);
 });
@@ -426,24 +428,19 @@ async function fakeUv(context, exitCode) {
   context.after(() => { process.env.PATH = saved; });
 }
 
-test("once every task is recorded and the suite passes, the next call ends the turn; git still runs", async (context) => {
+test("completion reports a green suite and leaves the final review open", async (context) => {
   await fakeUv(context, 0);
   const { errors, result, call } = await approvedRun(context);
   await result(taskDone(1), ledgerLine(1));
   assert.equal((await call("read", { path: "app.py" }))?.block, undefined, "one task left: keep working");
-  await result(taskDone(2), ledgerLine(2));
-  assert.equal((await call("bash", { command: "git add app.py && git commit -m done" }))?.block, undefined);
-  assert.equal((await call("bash", { command: "git status" }))?.block, undefined);
-  const first = await call("read", { path: "tests/test_phase4.py" });
-  assert.equal(first?.block, true);
-  assert.equal(first.terminate, undefined, "the first refusal leaves room for the final report");
-  assert.match(first.reason, /Every task in the plan is recorded and the full test suite passes/);
-  assert.match(first.reason, /commit them with git/);
-  assert.match(first.reason, /write your final report now, without another tool call/);
-  assert.equal((await call("bash", { command: "git commit -am leftovers" }))?.block, undefined, "git still runs");
-  const second = await call("bash", { command: "uv run --frozen python -m pytest" });
-  assert.equal(second?.block, true);
-  assert.equal(second.terminate, true, "a second non-git call ends the turn");
+  const completed = await result(taskDone(2), ledgerLine(2));
+  assert.equal(completed?.content[0].text, ledgerLine(2));
+  assert.match(completed.content[1].text, /Every task in the plan is recorded and the full test suite passes/);
+  assert.match(completed.content[1].text, /final review.*report/i);
+  assert.equal(await result(taskDone(2), ledgerLine(2)), undefined, "duplicate completion adds no reminder");
+  assert.equal(await call("read", { path: "tests/test_phase4.py" }), undefined);
+  assert.equal(await call("bash", { command: "uv run --frozen python -m pytest tests" }), undefined);
+  assert.equal(await call("bash", { command: "git status" }), undefined);
   assert.deepEqual(errors, []);
 });
 

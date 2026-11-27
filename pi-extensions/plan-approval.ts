@@ -16,9 +16,9 @@ const designOnly = (phase: number | undefined) => locked(phase) +
   " This turn only saves the design under docs/superpowers/specs/. Save it, reply with a short summary, and end your turn.";
 const planOnly = (phase: number | undefined, skill: string | undefined) => locked(phase) +
   " This turn only writes the plan. Read the writing-plans skill" + (skill ? ` at ${skill}` : "") +
-  ", save the plan under docs/superpowers/plans/, reply with a short summary, and end your turn.";
-const planSaved = (phase: number | undefined, path: string) => `${label(phase)} approval guard: your plan is saved at ` +
-  `${path}. Code edits stay locked until the user approves it, so this turn ends here.`;
+  ", save the plan under docs/superpowers/plans/, complete its self-review, and present the plan for approval.";
+const planSaved = (phase: number | undefined, path: string) => locked(phase) +
+  ` Your plan is saved at ${path}. Continue the writing-plans self-review, revise the plan as needed, and present it for approval.`;
 
 // Mellum read a bare refusal as "an odd message from a previous interaction" and ignored it,
 // so every refusal opens by naming the call it answers.
@@ -108,7 +108,7 @@ type PlanState = { phase?: number } & (
   | { status: "design" }
   | { status: "planning"; previousPlans: Record<string, string> }
   | { status: "approved"; plan?: string; progress?: PlanProgress; head?: string; staleLedger?: number[];
-      approvedAt?: number; complete?: boolean; reportAsked?: boolean }
+      approvedAt?: number }
   | { status: "finished" });
 
 const unlocked = (state: PlanState) => state.status === "approved" || state.status === "finished";
@@ -220,10 +220,8 @@ function readOnlyShell(command: unknown): boolean {
 
 const PLAN_NOTE = "plan-note";
 
-const ALL_DONE = "Every task in the plan is recorded and the full test suite passes. If `git status` shows " +
-  "uncommitted changes, commit them with git; then write your final report now, without another tool call. " +
-  "The finish prompt runs the checks.";
-const ALL_DONE_FINAL = "Every task in the plan is recorded and the full test suite passes, so this turn ends here.";
+const ALL_DONE = "Every task in the plan is recorded and the full test suite passes. " +
+  "Complete the executing-plans final review and report the results. The finish prompt runs the checks and marks the phase done.";
 
 export function compactionSummary(plan: string, note: string | undefined, status: string,
   fileOps: { read: Set<string>; written: Set<string>; edited: Set<string> }, phase?: number): string {
@@ -312,13 +310,14 @@ export default function planApproval(pi: ExtensionAPI) {
     } else {
       if (!new RegExp(`^ledger: Task ${n}: complete\\b`, "m").test(text) || progress.recorded.includes(n)) return;
       progress.recorded.push(n);
-      const tasks = planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8"));
-      if (tasks.length && tasks.every((task) => progress.recorded.includes(task.number)) && suitePasses(ctx.cwd)) {
-        pi.appendEntry<PlanState>(ENTRY, { ...state, progress, complete: true });
-        return;
-      }
     }
     pi.appendEntry<PlanState>(ENTRY, { ...state, progress });
+    if (script[1] === "task-done") {
+      const tasks = planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8"));
+      if (tasks.length && tasks.every((task) => progress.recorded.includes(task.number)) && suitePasses(ctx.cwd)) {
+        return { content: [...event.content, { type: "text", text: ALL_DONE }] };
+      }
+    }
   });
 
   // A compaction can drop the execution prompt and the task workflow (2026-11-25 PyCharm run): restate where
@@ -417,28 +416,13 @@ export default function planApproval(pi: ExtensionAPI) {
 
   pi.on("tool_call", (event, ctx) => {
     const state = stateFor(ctx);
-    // Once every task is recorded and the suite passes, work after that is a tail the audience waits
-    // through (135 to 322 s in four runs). Git still runs, so leftover work can be committed. The first
-    // refusal asks for the final report; ending the turn on it left the turn without one, and the
-    // driver's `Continue.` drew more refusals (5 of 6 runs, 2026-11-25). A second refusal ends the turn.
-    if (state?.status === "approved" && state.complete) {
-      const command = (event.input as { command?: unknown }).command;
-      const git = event.toolName === "bash" && typeof command === "string" && /^\s*git\b/.test(command);
-      if (!git) {
-        const call = blockedCall(event.toolName, event.input as Record<string, unknown>);
-        if (state.reportAsked) return { block: true, reason: `${call} ${ALL_DONE_FINAL}`, terminate: true };
-        pi.appendEntry<PlanState>(ENTRY, { ...state, reportAsked: true });
-        return { block: true, reason: `${call} ${ALL_DONE}` };
-      }
-    }
     if (!state || unlocked(state) || READ_TOOLS.has(event.toolName)) return;
     if ((event.toolName === "write" || event.toolName === "edit") && artifactPath(ctx.cwd, event.input.path)) return;
     if (event.toolName === "bash" && readOnlyShell(event.input.command)) return;
     const input = event.input as Record<string, unknown>;
     if (state.status === "design") return { block: true, reason: refusal(event.toolName, input, designOnly(state.phase)) };
-    // Once a new plan exists, a turn that keeps reaching for code is looping: end it.
     const saved = Object.entries(savedPlans(ctx.cwd)).find(([path, hash]) => hash !== state.previousPlans[path]);
-    if (saved) return { block: true, reason: refusal(event.toolName, input, planSaved(state.phase, saved[0])), terminate: true };
-    return { block: true, reason: refusal(event.toolName, input, planOnly(state.phase, writingPlans)) };
+    const guidance = saved ? planSaved(state.phase, saved[0]) : planOnly(state.phase, writingPlans);
+    return { block: true, reason: refusal(event.toolName, input, guidance) };
   });
 }

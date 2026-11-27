@@ -70,7 +70,7 @@ select Mellum through LM Studio. Set Pi’s thinking level to High and use the
 [60K context setting](setup.md#lm-studio).
 
 ```
-Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.
+/skill:brainstorming Brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.
 ```
 
 If Pi asks brainstorming questions, reply with this.
@@ -82,7 +82,7 @@ Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Sav
 After approving the design, send the planning prompt.
 
 ```
-The Phase 4 design looks good. Please proceed with implementation planning.
+/skill:writing-plans The Phase 4 design looks good. Please proceed with planning. Use at most three numbered tasks.
 ```
 
 ```
