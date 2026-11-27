@@ -82,7 +82,7 @@ Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Sav
 After approving the design, send the planning prompt.
 
 ```
-/skill:writing-plans The Phase 4 design looks good. Please proceed with planning. Use at most three numbered tasks. Write the plan's tests with .pi/skills/fastapi-testing/SKILL.md.
+/skill:writing-plans The Phase 4 design looks good. First read .pi/skills/fastapi-testing/SKILL.md. Then proceed with planning, using at most three numbered tasks, and write every test in the plan the way that skill shows.
 ```
 
 ```
