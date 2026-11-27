@@ -89,3 +89,37 @@ test("Pi warns with the plan line for a pass-only test and leaves the draft inta
   ]);
   assert.equal(await readFile(path.join(cwd, plan), "utf8"), draft);
 });
+
+test("Pi warns with plan lines for invalid Python test snippets and leaves the draft intact", async (context) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), "pi-plan-syntax-"));
+  context.after(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(path.join(cwd, ".pi"));
+  await writeFile(path.join(cwd, ".pi/project.json"), await readFile(new URL("../../.pi/project.json", import.meta.url)));
+  const extension = fileURLToPath(new URL("../../pi-extensions/frozen-pytest-plans.ts", import.meta.url));
+  const loaded = await sdk.discoverAndLoadExtensions([extension], cwd, cwd);
+  assert.deepEqual(loaded.errors, []);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sdk.SessionManager.inMemory(cwd), undefined);
+  const plan = "docs/superpowers/plans/phase4.md";
+  const draft = [
+    "# Phase 4", "", "```python", "def test_route():", "    # Check the route", "```", "",
+    "~~~py", "def test_board():", "    assert (", "~~~", "",
+    "```python", "def test_valid():", "    assert True", "```", "",
+    "```python", "incomplete_helper(", "```", "",
+    "```text", "def test_example():", "    # Not a Python snippet", "```", "",
+  ].join("\n");
+  const input = { path: plan, content: draft };
+  const result = await sdk.createWriteTool(cwd).execute("write", input, undefined, undefined);
+  const response = await runner.emitToolResult({
+    type: "tool_result", toolCallId: "write", toolName: "write", input, ...result, isError: false,
+  });
+
+  assert.ok(response, "return a syntax warning with the successful write");
+  assert.equal(response.isError, false);
+  assert.deepEqual(response.content.slice(0, -1), result.content);
+  const warnings = response.content.at(-1).text.split("\n");
+  assert.equal(warnings.length, 2);
+  assert.ok(warnings[0].startsWith(`Warning: ${plan}:5: Python test snippet`), warnings[0]);
+  assert.match(warnings[0], /expected an indented block/);
+  assert.ok(warnings[1].startsWith(`Warning: ${plan}:10: Python test snippet`), warnings[1]);
+  assert.equal(await readFile(path.join(cwd, plan), "utf8"), draft);
+});

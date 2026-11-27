@@ -156,8 +156,12 @@ async function setupAll(context) {
 const exists = (file) => access(file).then(() => true, () => false);
 const texts = (result) => result.content.map((item) => item.text ?? "");
 
-test("brainstorming and planning each get today's date once", async (context) => {
-  const { errors, say, start } = await setupAll(context);
+test("the project skill is attached once when planning starts", async (context) => {
+  const { cwd, errors, say, start } = await setupAll(context);
+  const skillPath = ".pi/skills/fastapi-testing/SKILL.md";
+  const skill = await readFile(path.join(repo, skillPath), "utf8");
+  await mkdir(path.dirname(path.join(cwd, skillPath)), { recursive: true });
+  await writeFile(path.join(cwd, skillPath), skill);
   const dated = (result) => result.messages.filter((m) => String(m.content).includes(today()));
   await say(brainstorm);
   const first = dated(await start(brainstorm));
@@ -166,11 +170,37 @@ test("brainstorming and planning each get today's date once", async (context) =>
   // Naming the plans folder while brainstorming led Pi to write a plan too (4 of 4 runs on 2026-11-25).
   assert.doesNotMatch(first[0].content, /plans/);
   assert.equal(dated(await start("Skip the questions.")).length, 0);
-  await say(planning);
-  const second = dated(await start(planning));
+  assert.ok(!first[0].content.includes(skill.trim()));
+  const planningPrompt = "/skill:writing-plans " + planning;
+  await say(planningPrompt);
+  const second = dated(await start(planningPrompt));
   assert.equal(second.length, 1);
   assert.ok(second[0].content.includes(`docs/superpowers/plans/${today()}-`), second[0].content);
   assert.doesNotMatch(second[0].content, /specs/);
+  assert.ok(second[0].content.includes(skill.trim()), "send the skill contents with the planning note");
+  assert.equal(dated(await start("Continue.")).length, 0);
+  await writeFile(path.join(cwd, "docs/superpowers/plans/workshop.md"), "# Plan\n\n### Task 1: Model\n");
+  await say("/skill:executing-plans " + APPROVAL);
+  const execution = await start("/skill:executing-plans " + APPROVAL);
+  assert.equal(planMessages(execution).length, 1);
+  assert.ok(execution.messages.every((message) => !String(message.content).includes(skill.trim())));
+  assert.deepEqual(errors, []);
+});
+
+test("a missing or unreadable planning skill warns with its path and allows planning", async (context) => {
+  const { cwd, errors, say, start, run } = await setupAll(context);
+  const skill = ".pi/skills/fastapi-testing/SKILL.md";
+  await say(planning);
+  const missing = await start(planning);
+  assert.match(missing.messages[0].content, /Warning:.*\.pi\/skills\/fastapi-testing\/SKILL\.md.*missing/);
+
+  await mkdir(path.join(cwd, skill), { recursive: true });
+  await say(planning);
+  const unreadable = await start(planning);
+  assert.match(unreadable.messages[0].content, /Warning:.*\.pi\/skills\/fastapi-testing\/SKILL\.md.*could not be read/);
+  const plan = "docs/superpowers/plans/workshop.md";
+  await run("write", { path: plan, content: "# Plan\n" });
+  assert.equal(await readFile(path.join(cwd, plan), "utf8"), "# Plan\n");
   assert.deepEqual(errors, []);
 });
 

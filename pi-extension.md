@@ -15,6 +15,8 @@ No extension carries text written for this project, its stack or one phase. All 
   leading `/skill:<name>`. `{n}` captures the phase number; a second `{n}` must name the same phase. The guards
   take the phase from these prompts, so their messages say "Phase 4" for Phase 4 and "Phase 5" for Phase 5.
   `tests/pi/project-config.test.mjs` checks that the README's Phase 4 prompts match.
+- `planningSkill`: a project-relative skill file attached to the planning note at the start of the turn.
+  The note shows the configured path in a warning if the file is missing or unreadable.
 - `python`, `pytest`, `testSuite`, `implementation`: the commands the extensions run or write into plans, and the
   files whose change during the finish check stops it.
 - `servers` and `inProcessHint`: what counts as starting a server, and what to do instead.
@@ -157,6 +159,7 @@ server start, as the live-server guard recognises it, becomes
 `uv run --frozen python -m pytest tests`, unless the words just before it forbid
 it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
 Python code blocks stay as written.
+The save result warns with the plan line for a `pass`-only test or a fenced Python test snippet that fails to parse.
 Until 2026-11-26 a route path written the Flask way, `/<int:id>`, was also rewritten to `{id}` (two runs had
 copied such a path into `app.py` and spent 10 and 30 minutes on probes); that rewrite was removed with the move to
 the project config. A plan with no `Task N` headings but two or more numbered

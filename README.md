@@ -82,7 +82,7 @@ Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Sav
 After approving the design, send the planning prompt.
 
 ```
-/skill:writing-plans The Phase 4 design looks good. First read .pi/skills/fastapi-testing/SKILL.md. Proceed with planning in at most three numbered tasks. In the route task, include runnable tests with the shared-data fixture, an assigned-ID POST that checks 303 and Location with follow_redirects=False, and a separate unknown-ID 404 test. In the template task, use the skill's HTMLParser example for the assigned-ID form and verify Closed on the same card.
+/skill:writing-plans The Phase 4 design looks good. Proceed with planning in at most three numbered tasks. Use the attached FastAPI guidance to write runnable tests in the task that owns each behavior.
 ```
 
 ```

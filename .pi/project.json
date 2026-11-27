@@ -7,6 +7,7 @@
     "approve": "^The plan looks good\\. Proceed with native execution\\.$",
     "finish": "^Use Superpowers to finish Phase {n}\\. Keep the current branch as-is and mark Phase {n} done in specs/roadmap\\.md\\.$"
   },
+  "planningSkill": ".pi/skills/fastapi-testing/SKILL.md",
   "python": "uv run --frozen python",
   "pytest": "uv run --frozen python -m pytest",
   "testSuite": "uv run --frozen python -m pytest tests",

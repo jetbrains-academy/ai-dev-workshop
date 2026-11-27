@@ -288,7 +288,19 @@ export default function planApproval(pi: ExtensionAPI) {
     const state = entry?.data as PlanState | undefined;
     if (!entry || !state || unlocked(state) || entry.id === datedStage) return;
     datedStage = entry.id;
-    return { message: { customType: "plan-date", content: dateNote(today(), state.status), display: true } };
+    let content = dateNote(today(), state.status);
+    const skill = state.status === "planning" ? projectConfig(ctx.cwd).planningSkill : undefined;
+    if (skill) {
+      try {
+        const path = join(ctx.cwd, skill);
+        if (!lstatSync(path).isFile()) throw new Error("Expected a regular file");
+        content += `\n\nUse this project guidance while writing the plan (${skill}).\n\n${readFileSync(path, "utf8").trim()}`;
+      } catch (error) {
+        const reason = (error as NodeJS.ErrnoException).code === "ENOENT" ? "is missing" : "could not be read";
+        content += `\n\nWarning: Planning skill \`${skill}\` ${reason}. Continue planning with the available instructions.`;
+      }
+    }
+    return { message: { customType: "plan-date", content, display: true } };
   });
 
   // Track executing-plans' own scripts from their results: a printed brief and base start a task, a

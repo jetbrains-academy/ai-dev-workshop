@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -100,24 +101,37 @@ export function freezePlanCommands(markdown: string, config: ProjectConfig): Fro
   return { markdown: frozen, serverStarts };
 }
 
-function passOnlyTests(markdown: string): { name: string; line: number }[] {
+interface PythonSnippet {
+  lines: string[];
+  firstLine: number;
+}
+
+function pythonSnippets(markdown: string): PythonSnippet[] {
   const lines = markdown.split(/\r?\n/);
-  const stubs: { name: string; line: number }[] = [];
+  const snippets: PythonSnippet[] = [];
   let fence = "";
   let python = false;
+  let start = 0;
   for (const [index, line] of lines.entries()) {
     const marker = line.match(/^\s*(`{3,}|~{3,})[ \t]*(\S*)/);
     if (!fence && marker) {
       fence = marker[1];
       python = /^(?:py|python3?)$/i.test(marker[2]);
+      start = index + 1;
       continue;
     }
     if (fence && marker && marker[1].startsWith(fence) && !marker[2]) {
+      if (python) snippets.push({ lines: lines.slice(start, index), firstLine: start + 1 });
       fence = "";
-      continue;
     }
-    if (!fence || !python) continue;
+  }
+  if (fence && python) snippets.push({ lines: lines.slice(start), firstLine: start + 1 });
+  return snippets;
+}
 
+function passOnlyTests({ lines, firstLine }: PythonSnippet): { name: string; line: number }[] {
+  const stubs: { name: string; line: number }[] = [];
+  for (const [index, line] of lines.entries()) {
     const test = line.match(/^([ \t]*)(?:async\s+)?def\s+(test_\w+)\s*\(.*\)(?:\s*->\s*[^:]+)?:\s*(?:#.*)?$/);
     if (!test) continue;
     let passLine: number | undefined;
@@ -130,11 +144,46 @@ function passOnlyTests(markdown: string): { name: string; line: number }[] {
         passLine = undefined;
         break;
       }
-      passLine = body + 1;
+      passLine = firstLine + body;
     }
     if (passLine !== undefined) stubs.push({ name: test[2], line: passLine });
   }
   return stubs;
+}
+
+const PARSE_TEST_SNIPPETS = `
+import ast
+import json
+import sys
+from textwrap import dedent
+
+errors = []
+for snippet in json.load(sys.stdin):
+    try:
+        ast.parse(dedent(snippet["source"]))
+    except SyntaxError as error:
+        errors.append({
+            "line": snippet["firstLine"] + max(error.lineno or 1, 1) - 1,
+            "message": error.msg.replace("on line ", "on snippet line "),
+        })
+print(json.dumps(errors))
+`;
+
+function testSyntaxErrors(cwd: string, python: string | undefined, snippets: PythonSnippet[]): { line: number; message: string }[] {
+  if (!python) return [];
+  const tests = snippets
+    .filter(({ lines }) => lines.some((line) => /^\s*(?:(?:async\s+)?def\s+test_|@pytest\.fixture\b)/.test(line)))
+    .map(({ lines, firstLine }) => ({ source: lines.join("\n"), firstLine }));
+  if (!tests.length) return [];
+  const [program, ...args] = python.split(" ");
+  try {
+    const output = execFileSync(program, [...args, "-I", "-c", PARSE_TEST_SNIPPETS], {
+      cwd, input: JSON.stringify(tests), encoding: "utf8", stdio: ["pipe", "pipe", "ignore"], timeout: 5000,
+    });
+    return JSON.parse(output);
+  } catch {
+    return []; // The optional check must not fail a saved plan when Python is unavailable.
+  }
 }
 
 function plansIn(cwd: string): Map<string, string> {
@@ -182,8 +231,12 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
       const frozen = freezePlanCommands(nativePlanHeader(headed.markdown), config);
       taskSteps += headed.renamed;
       const plan = relative(ctx.cwd, path);
-      for (const { name, line } of passOnlyTests(frozen.markdown)) {
+      const snippets = pythonSnippets(frozen.markdown);
+      for (const { name, line } of snippets.flatMap(passOnlyTests)) {
         warnings.push(`Warning: ${plan}:${line}: ${name} contains only \`pass\`. Replace it with a complete test.`);
+      }
+      for (const { line, message } of testSyntaxErrors(ctx.cwd, config.python, snippets)) {
+        warnings.push(`Warning: ${plan}:${line}: Python test snippet does not parse. ${message}`);
       }
       if (frozen.markdown === content) continue;
       writeFileSync(path, frozen.markdown);

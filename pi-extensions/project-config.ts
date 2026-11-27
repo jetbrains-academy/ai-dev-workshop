@@ -10,6 +10,8 @@ export interface ProjectConfig {
   /** Case-insensitive regular expressions searched in a typed prompt; {n} captures the phase number. A list
    * holds alternatives, each with its own {n}, such as two word orders. */
   prompts?: { design?: Pattern; plan?: Pattern; approve?: Pattern; finish?: Pattern };
+  /** Project-relative skill file to attach when planning starts. */
+  planningSkill?: string;
   python?: string;
   pytest?: string;
   testSuite?: string;
