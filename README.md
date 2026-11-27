@@ -82,7 +82,7 @@ Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Sav
 After approving the design, send the planning prompt.
 
 ```
-/skill:writing-plans The Phase 4 design looks good. First read .pi/skills/fastapi-testing/SKILL.md. Then proceed with planning, using at most three numbered tasks, and write every test in the plan the way that skill shows.
+/skill:writing-plans The Phase 4 design looks good. First read .pi/skills/fastapi-testing/SKILL.md. Proceed with planning in at most three numbered tasks. In the route task, include runnable tests with the shared-data fixture, an assigned-ID POST that checks 303 and Location with follow_redirects=False, and a separate unknown-ID 404 test. In the template task, use the skill's HTMLParser example for the assigned-ID form and verify Closed on the same card.
 ```
 
 ```
@@ -96,7 +96,8 @@ only a tool call printed as text (`{"name": "read", ...}`), send `Continue.`
 If planning stops right after Pi saves its plan, review the plan and send the
 approval prompt.
 
-After execution, send the finish prompt. Pi runs the test suite with the
+Pi stops after its final review and report. Verify the result, then send the
+finish prompt. The workshop extension runs the test suite with the
 [exact command in AGENTS.md](AGENTS.md#working-in-this-repo)
 and marks Phase 4 done when it passes. If it fails, fix the reported failure and
 send the same finish prompt again.

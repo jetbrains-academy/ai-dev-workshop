@@ -6,12 +6,13 @@ description: Use when planning or writing tests for FastAPI routes - POST forms 
 # FastAPI route tests
 
 When you write an implementation plan, write its test code this way, so execution does not have to rediscover it.
+Write and run the route tests in the task that adds the route. Check the rendered board in the template task.
 
 ## Redirect after a POST
 
 - Return `RedirectResponse(url, status_code=303)`. The default is 307.
 - `TestClient` follows redirects. Pass `follow_redirects=False`, then assert `response.status_code == 303` and
-  `response.headers["location"] == url`. Check the page with a separate `client.get(url)`.
+  `response.headers["location"] == url`. Use a separate GET for checks on the rendered page.
 
 ## Unknown ids
 
@@ -29,41 +30,82 @@ When you write an implementation plan, write its test code this way, so executio
 ## Assertions on HTML
 
 - Use `response.text`, not `response.content`, which is bytes.
-- Assert on distinctive markup such as a form's `action`, not a bare word: "Archive" is also inside "Archived".
+- Parse the form's `method` and `action` for the test complaint's assigned ID. Check the form before submission and again after it.
 
-## Example
+## Route task example
 
 ```python
 import copy
 
 import pytest
-from fastapi.testclient import TestClient  # same class as starlette.testclient; keep the project's import
+from starlette.testclient import TestClient
 
 from app import app
-from models import orders  # the module-level list the app reads
+from models import complaints
 
 client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def restore_orders():
-    saved = copy.deepcopy(orders)
+def restore_complaints():
+    saved = copy.deepcopy(complaints)
     yield
-    orders[:] = saved
+    complaints[:] = saved
 
 
-def test_archive_redirects_and_removes_the_form():
-    order_id = orders[0].id
-    response = client.post(f"/orders/{order_id}/archive", follow_redirects=False)
+def test_resolve_redirects_and_updates_complaint():
+    complaint = complaints[0]
+    response = client.post(f"/complaints/{complaint.id}/resolve", follow_redirects=False)
     assert response.status_code == 303
-    assert response.headers["location"] == "/orders"
-    assert f'action="/orders/{order_id}/archive"' not in client.get("/orders").text
+    assert response.headers["location"] == "/complaints"
+    assert complaint.resolved is True
 
 
-def test_archive_unknown_id_is_404():
-    unknown = max(o.id for o in orders) + 1000
-    response = client.post(f"/orders/{unknown}/archive", follow_redirects=False)
+def test_resolve_unknown_id_is_404():
+    unknown = max(complaint.id for complaint in complaints) + 1000
+    response = client.post(f"/complaints/{unknown}/resolve", follow_redirects=False)
     assert response.status_code == 404
+```
+
+## Template task example
+
+Add this form check to the same test module so it uses the fixture above. Also check that the same card remains and shows **Closed**.
+
+```python
+from html.parser import HTMLParser
+
+from models import Complaint
+
+
+class FormParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.forms = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "form":
+            form = dict(attrs)
+            method = (form.get("method") or "get").lower()
+            self.forms.append((method, form.get("action")))
+
+
+def board_forms():
+    response = client.get("/complaints")
+    assert response.status_code == 200
+    parser = FormParser()
+    parser.feed(response.text)
+    return parser.forms
+
+
+def test_resolve_form_for_new_complaint():
+    complaint = Complaint("Tess", "Check the resolve form.")
+    complaints.append(complaint)
+    action = f"/complaints/{complaint.id}/resolve"
+
+    assert ("post", action) in board_forms()
+    response = client.post(action, follow_redirects=False)
+    assert response.status_code == 303
+    assert all(form_action != action for _, form_action in board_forms())
 ```
 
 Check routes in process like this; never start a server.

@@ -53,7 +53,7 @@ As an agent, I want to resolve a complaint from the board and see that it has be
 
 **Acceptance.**
 
-- A new complaint starts open. Its card has a form that posts to `/complaints/{id}/resolve` using its assigned ID. Submitting it resolves the complaint in place and returns 303 with `Location: /complaints`. The card visibly shows that it is resolved, and the form disappears.
+- A new complaint starts open. Its card has a **Resolve complaint** button in a form that posts to `/complaints/{id}/resolve` using its assigned ID. Submitting it resolves the complaint in place and returns 303 with `Location: /complaints`. The card shows **Closed**, and the form disappears.
 - `POST /complaints/{id}/resolve` returns 404 for an unknown ID.
 - Phases 1 to 3 still pass.
 

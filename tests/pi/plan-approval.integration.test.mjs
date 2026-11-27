@@ -430,13 +430,16 @@ async function fakeUv(context, exitCode) {
 
 test("completion reports a green suite and leaves the final review open", async (context) => {
   await fakeUv(context, 0);
-  const { errors, result, call } = await approvedRun(context);
+  const { cwd, errors, result, call, emit } = await approvedRun(context);
   await result(taskDone(1), ledgerLine(1));
   assert.equal((await call("read", { path: "app.py" }))?.block, undefined, "one task left: keep working");
   const completed = await result(taskDone(2), ledgerLine(2));
   assert.equal(completed?.content[0].text, ledgerLine(2));
   assert.match(completed.content[1].text, /Every task in the plan is recorded and the full test suite passes/);
-  assert.match(completed.content[1].text, /final review.*report/i);
+  const handoff = /final review.*report.*stop for human verification.*skip finishing-a-development-branch/i;
+  assert.match(completed.content[1].text, handoff);
+  const compacted = await emit(compactEvent(cwd));
+  assert.match(compacted.compaction.summary, handoff);
   assert.equal(await result(taskDone(2), ledgerLine(2)), undefined, "duplicate completion adds no reminder");
   assert.equal(await call("read", { path: "tests/test_phase4.py" }), undefined);
   assert.equal(await call("bash", { command: "uv run --frozen python -m pytest tests" }), undefined);

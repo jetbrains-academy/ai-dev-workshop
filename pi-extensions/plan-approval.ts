@@ -220,8 +220,9 @@ function readOnlyShell(command: unknown): boolean {
 
 const PLAN_NOTE = "plan-note";
 
-const ALL_DONE = "Every task in the plan is recorded and the full test suite passes. " +
-  "Complete the executing-plans final review and report the results. The finish prompt runs the checks and marks the phase done.";
+const FINAL_REVIEW_HANDOFF = "Complete the executing-plans final review, report the results, and stop for human verification. " +
+  "Skip finishing-a-development-branch. The user's finish prompt runs the checks and marks the phase done.";
+const ALL_DONE = "Every task in the plan is recorded and the full test suite passes. " + FINAL_REVIEW_HANDOFF;
 
 export function compactionSummary(plan: string, note: string | undefined, status: string,
   fileOps: { read: Set<string>; written: Set<string>; edited: Set<string> }, phase?: number): string {
@@ -229,7 +230,7 @@ export function compactionSummary(plan: string, note: string | undefined, status
   return [
     `Summary written by the ${phase === undefined ? "" : `Phase ${phase} `}plan guard from its own records (no model summary).`,
     `The user approved the plan ${plan}; you are executing it with the executing-plans skill, one task at a time.`,
-    note ?? "Every task in the plan is recorded: run the full test suite, commit anything left, and report.",
+    note ?? `Every task in the plan is recorded. Run the full test suite and commit anything left. ${FINAL_REVIEW_HANDOFF}`,
     `Uncommitted changes: ${status.trim() ? status.trim().split("\n").join("; ") : "none"}.`,
     `Files read: ${fileOps.read.size ? [...fileOps.read].sort().join(", ") : "none"}.`,
     `Files changed: ${changed.length ? changed.join(", ") : "none"}.`,
