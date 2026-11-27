@@ -215,7 +215,7 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
       changed = [...plansIn(ctx.cwd)].filter(([path, content]) => before.get(path) !== content);
     } else {
       const { path } = event.input;
-      if (event.isError || !["write", "edit"].includes(event.toolName) || typeof path !== "string") return;
+      if (event.isError || !["write", "edit", "save_plan"].includes(event.toolName) || typeof path !== "string") return;
       const target = resolve(ctx.cwd, path);
       if (!relative(ctx.cwd, target).startsWith(PLANS + "/") || !target.endsWith(".md")) return;
       const content = plansIn(ctx.cwd).get(target);

@@ -6,17 +6,22 @@
 
 - Install [PyCharm](https://www.jetbrains.com/pycharm/)
 
+## Python environment
+
+- Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and use Python 3.11 or newer.
+- From the project root, run `uv run --frozen python -m pytest tests` to check the environment.
+
 ## Codex (or another agent, such as Claude Code)
 
 - Ensure the Codex [IDE integration](https://www.jetbrains.com/help/air/air-in-ides-manage-agents.html) is available
 - Install the [Superpowers](https://github.com/obra/superpowers) skill:
   - For this workshop, it is easier to install it locally for this project using the following prompt: `Install Superpowers skill locally for this project`. This installs the skill in the `.agents/skills` directory, so other agents can use it as well.
 
-## Junie Lite (optional)
+## Junie Lite
 
 - [Junie Lite](https://junie.jetbrains.com/docs/junie-lite.html) is available in the IDE out of the box (currently free)
 - Requires a [JetBrains Account](https://account.jetbrains.com/)
-- The Superpowers skill can be used from `.agents/skills` — no explicit installation is required
+- Junie Lite uses the Superpowers skills from `.agents/skills`. Turn off Junie Plan mode for Phase 3 brainstorming and planning.
 
 ## LM Studio
 
@@ -66,5 +71,5 @@
   }
   ```
   Use the model id LM Studio shows for the model you downloaded. `contextWindow` must match the LM Studio context length: Pi assumes 128K when it is missing and then compacts too late. `"reasoning": true` lets Pi turn Mellum's thinking on; without it Pi treats the model as non-thinking and keeps thinking off. After selecting the model in Pi, set the thinking level to High.
-- The Superpowers skill can be used from `.agents/skills` — no explicit installation is required
+- Start a fresh Pi session from the project root and trust the project settings when prompted. Pi loads the pinned Superpowers package from [`.pi/settings.json`](.pi/settings.json).
 - This repository also contains a few tricks based on the [Satyrn AI Project](https://satyrn.ai/)

@@ -3,37 +3,38 @@
 This repo contains material and code for
 the [workshop at AI Dev NYC 2026](https://ai-dev.deeplearning.ai/agenda/advanced-spec-driven-development).
 
-## What in this repo
-- `main` branch -- workshop starting point
-- `example` branch --  an example of a project that will be created during the workshop
-- `workshop` branch -- a project created during the workshop will be published here
+## Where to start
+
+- `dev` is the default branch and starts the full workshop with Phase 1 implemented.
+- `phase-4-run` is the Phase 4 rehearsal branch, with Phases 1–3 implemented.
 
 ## Setup
-During the workshop, we'll use the following tools, which you'll also need to set up / get ready to use if you want to try this yourself.
+Set up these tools before the workshop.
+
 - PyCharm
+- uv
 - Codex integration
-- Junie Lite integration (optional)
+- Junie Lite integration
 - LM Studio
 - Pi coding agent + IDE integration
 
-To read more about setup process follow [this](./setup.md) guide.
+Follow the [setup guide](setup.md).
 
 ### Pre-flight checklist
 - #### ☑️ Current repo is opened in PyCharm  
   <img src="images/check1.png" alt="Repo opened in PyCharm" width="500">
 - #### ☑️ Codex in Air reports you Superpowers skill is accessible  
   <img src="images/check2.png" alt="Codex reports that it has access to Superpowers" width="500">
-- #### ☑️ Junie Lite in Air reports you Superpowers skill is accessible (optional)  
+- #### ☑️ Junie Lite in Air reports that Superpowers is accessible
   <img src="images/check3.png" alt="Junie reports that it has access to Superpowers" width="500">
 - #### ☑️ LM Studio allow you ask Mellum model in the chat  
   <img src="images/check4.png" alt="LM Studio chat with Mellum" width="500">
-- #### ☑️ Pi in Air reports you Superpowers skill is accessible  
+- #### ☑️ Pi in Air has loaded the project's Superpowers package
   <img src="images/check5.png" alt="Pi reports that it has access to Superpowers" width="500">
 
 ## Workshop flow
-The demo starts with Phase 1 implemented. Each later phase uses the same four
-prompts: design, plan, implement, finish. Review the saved design and plan
-before approving them.
+For each phase, draft a design, write a plan, implement it, and finish. Review
+the saved design and plan before approving them.
 
 ### Phase 2 (Codex + Superpowers)
 ```
@@ -50,6 +51,9 @@ Use Superpowers to finish the development branch, then mark Phase 2 in the roadm
 ```
 
 ### Phase 3 (Junie Lite + Superpowers)
+
+Use Junie Lite with Plan mode off for brainstorming and planning.
+
 ```
 Use Superpowers to brainstorm Phase 3 in specs/roadmap.md
 ```
@@ -70,7 +74,7 @@ select Mellum through LM Studio. Set Pi’s thinking level to High and use the
 [60K context setting](setup.md#lm-studio).
 
 ```
-/skill:brainstorming IMPORTANT: Do not edit code during this turn. Brainstorm Phase 4 from specs/roadmap.md. Save the design under docs/superpowers/specs/ and stop for approval.
+/skill:brainstorming Read specs/roadmap.md as input to brainstorm the Phase 4 design. Write only the design document under docs/superpowers/specs/ and stop for approval.
 ```
 
 If Pi asks brainstorming questions, reply with this.
@@ -82,22 +86,27 @@ Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Sav
 After approving the design, send the planning prompt.
 
 ```
-/skill:writing-plans The Phase 4 design looks good. Proceed with planning in at most three numbered tasks. Use the attached FastAPI guidance and put runnable tests in the task that owns each behavior. Check the assigned-ID POST's 303 and Location with follow_redirects=False, pair it with an unknown-ID 404 test, and isolate shared state. Check the parsed form for the assigned ID, then verify the same card shows Closed and its form is gone.
+/skill:writing-plans The Phase 4 design looks good. Proceed with planning in at most three numbered tasks. Use the attached FastAPI guidance and put runnable tests in the task that owns each behavior. Check the assigned-ID POST's 303 and Location with follow_redirects=False, pair it with an unknown-ID 404 test, and isolate shared state. Check the parsed form for the assigned ID, then verify the same card shows Closed and its form is gone. Reread the saved plan and complete the Superpowers self-review before asking for approval.
 ```
+
+Skim the saved plan for task count and runnable tests before approving it. If
+the plan needs changes, send this repair prompt.
+
+```
+/skill:writing-plans Reread the saved Phase 4 plan against the roadmap and attached FastAPI guidance. Revise it to at most three numbered tasks, with runnable tests in the task that owns each behavior. Edit only the plan and stop for approval.
+```
+
+When the plan is ready, approve it to start native execution.
 
 ```
 /skill:executing-plans The plan looks good. Proceed with native execution.
 ```
 
-The approval prompt names `executing-plans`, so Pi runs the plan with that
-skill's task scripts. If Pi skips the planning skill, send the planning prompt
-again after `/skill:writing-plans`. If it sends an empty reply, or a reply that is
-only a tool call printed as text (`{"name": "read", ...}`), send `Continue.`
-If planning stops right after Pi saves its plan, review the plan and send the
-approval prompt.
+If Pi sends an empty reply or prints a tool call as text (`{"name": "read", ...}`),
+send `Continue.`
 
-Pi stops after its final review and report. Verify the result, then send the
-finish prompt. The workshop extension runs the test suite with the
+After Pi reports its final review, verify the result and send the finish prompt.
+The workshop extension runs the test suite with the
 [exact command in AGENTS.md](AGENTS.md#working-in-this-repo)
 and marks Phase 4 done when it passes. If it fails, fix the reported failure and
 send the same finish prompt again.

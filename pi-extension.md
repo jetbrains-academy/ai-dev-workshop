@@ -183,11 +183,16 @@ route no less often than the 12 that did not.
 ### Phase approval and finish
 
 [`plan-approval.ts`](pi-extensions/plan-approval.ts) (named `phase4-plan-approval.ts` until 2026-11-26) activates
-when you ask Pi to brainstorm or plan a phase, as the config's `design` and `plan` prompts recognise it. Before approval, Pi can inspect
-the repo and write design or plan Markdown under `docs/superpowers/`. To
-enable implementation, wait for Pi to save a new or revised plan and stop,
+when you ask Pi to brainstorm or plan a phase, as the config's `design` and `plan` prompts recognise it. Brainstorming exposes read-only tools and
+`save_design`, which writes Markdown under `docs/superpowers/specs/`. Pi sees
+the workshop's draft-before-approval sequence on skill load and reread. During
+planning, Pi gets read-only tools and `save_plan`, which writes Markdown under
+`docs/superpowers/plans/` and runs the existing plan checks. The adapted
+`writing-plans` skill asks Pi to reread the saved plan and complete its
+self-review before asking for approval. To enable implementation, wait for Pi
+to save and review a new or revised plan and stop,
 then send the approval prompt from the [README](README.md#phase-4-pi--mellum--superpowers).
-The guard records approval in the Pi session branch.
+The guard records approval in the Pi session branch and restores the prior tool set.
 
 Its refusals depend on the stage. While brainstorming, it says the turn only
 saves the design. While planning with no new plan yet, it names the
@@ -199,9 +204,7 @@ the user's approval unlocks implementation.
 Every refusal opens by naming the call it answers, for example "Blocked just
 now: your `bash` call `find . -name "SKILL.md" 2>/dev/null || ls`." In a
 2026-11-25 PyCharm run, Mellum read a bare refusal as an odd message from an
-earlier interaction and ignored it. A refused shell command also lists the
-read-only forms that are allowed: `ls`, `pwd`, `git status`, `date`, and plain
-`find` with relative paths, without pipes, `||`, `;`, `&`, redirection or `$(`.
+earlier interaction and ignored it.
 
 Superpowers names specs and plans `YYYY-MM-DD-<name>.md`, but Pi's prompt has
 no date, so Mellum guessed: on 2026-11-25 it wrote `phase-4-design.md` and

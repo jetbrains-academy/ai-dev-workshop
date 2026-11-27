@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -19,8 +19,16 @@ const withConfig = async (cwd) => {
 };
 const NOTE_CONTEXT = { phase: 4, pytest: "uv run --frozen python -m pytest" };
 const skills = sdk.loadSkillsFromDir({ dir: path.join(process.env.SUPERPOWERS_DIR, "skills"), source: "user" }).skills;
+const brainstormingSkill = skills.find((skill) => skill.name === "brainstorming");
 const writingPlans = skills.find((skill) => skill.name === "writing-plans").filePath;
 const executingSkill = skills.find((skill) => skill.name === "executing-plans");
+const normalTools = ["read", "ls", "find", "grep", "write", "edit", "bash", "tool_search"];
+
+function bindActiveTools(runtime, active = normalTools) {
+  runtime.getActiveTools = () => active;
+  runtime.setActiveTools = (tools) => { active = tools; };
+  return runtime.getActiveTools;
+}
 
 async function setup(context, reuse) {
   const cwd = reuse?.cwd ?? await mkdtemp(path.join(tmpdir(), "pi-phase4-approval-"));
@@ -34,13 +42,16 @@ async function setup(context, reuse) {
   const session = reuse?.session ?? sdk.SessionManager.inMemory(cwd);
   // Pi binds appendEntry and sendMessage to the session at startup; do the same here.
   loaded.runtime.appendEntry = (customType, data) => session.appendCustomEntry(customType, data);
+  const activeTools = bindActiveTools(loaded.runtime, reuse?.activeTools);
   const sent = [];
   loaded.runtime.sendMessage = (message, options) => sent.push({ message, options });
   const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, cwd, session, undefined);
   const errors = [];
   runner.onError((error) => errors.push(error));
   const say = (text) => runner.emitInput(text, undefined, "rpc");
-  const start = (prompt) => runner.emitBeforeAgentStart({ messageType: "user", prompt }, { cwd, skills });
+  const start = (prompt, availableSkills = skills) => runner.emitBeforeAgentStart(
+    { messageType: "user", prompt }, { cwd, skills: availableSkills },
+  );
   const call = (toolName, input) => runner.emitToolCall({ type: "tool_call", toolCallId: "call", toolName, input });
   const compact = () => runner.emit({
     type: "session_compact", fromExtension: false, reason: "threshold", willRetry: false,
@@ -50,7 +61,7 @@ async function setup(context, reuse) {
   const result = (command, text, isError = false) => runner.emitToolResult({ type: "tool_result", toolCallId: "b",
     toolName: "bash", input: { command }, content: [{ type: "text", text }], isError });
   const emit = (event) => runner.emit(event);
-  return { cwd, session, errors, say, start, call, sent, compact, result, emit, runner };
+  return { cwd, session, errors, say, start, call, sent, compact, result, emit, runner, activeTools };
 }
 
 const brainstorm = "Use Superpowers to brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.";
@@ -70,9 +81,82 @@ test("before design approval, code edits are refused with the design-only step",
   const shell = await call("bash", { command: 'find . -name "SKILL.md" 2>/dev/null || ls' });
   assert.equal(shell?.block, true);
   assert.match(shell.reason, /^Blocked just now: your `bash` call `find \. -name "SKILL\.md" 2>\/dev\/null \|\| ls`/);
-  assert.match(shell.reason, /`\|\|`/);
-  assert.match(shell.reason, /read, find and grep tools/);
-  assert.match(shell.reason, /docs\/superpowers\/specs\//);
+  assert.match(shell.reason, /save_design/);
+  assert.equal((await call("bash", { command: "date" }))?.block, true);
+  assert.equal((await call("write", { path: "docs/superpowers/specs/draft.md" }))?.block, true);
+  assert.deepEqual(errors, []);
+});
+
+test("drafting exposes the stage's saver and restores the prior tools after plan approval", async (context) => {
+  const run = await setup(context);
+  await run.say(brainstorm);
+  await run.start(brainstorm);
+  assert.deepEqual(run.activeTools(), ["read", "ls", "find", "grep", "save_design"]);
+  await run.start("Refine the draft.");
+  const resumed = await setup(context, { cwd: run.cwd, session: run.session, activeTools: run.activeTools() });
+  await resumed.say(planning);
+  await resumed.start(planning);
+  assert.deepEqual(resumed.activeTools(), ["read", "ls", "find", "grep", "save_plan"]);
+  await writeFile(path.join(run.cwd, "docs/superpowers/plans/current.md"), "# Plan\n");
+  await resumed.say(APPROVAL);
+  await resumed.start(APPROVAL);
+  assert.deepEqual(resumed.activeTools(), normalTools);
+  assert.deepEqual([...run.errors, ...resumed.errors], []);
+});
+
+test("save_design writes or revises only a design draft in the design stage", async (context) => {
+  const { cwd, errors, say, start, call, runner } = await setup(context);
+  await say(brainstorm);
+  await start(brainstorm);
+  const draft = "docs/superpowers/specs/phase-4-design.md";
+  const tool = runner.getToolDefinition("save_design");
+  assert.equal(tool?.defaultActive, false);
+  const save = (path, content = "# Draft\n") => tool.execute("save", { path, content }, undefined, undefined,
+    runner.createToolContext("save", undefined));
+  assert.equal((await call("save_design", { path: draft }))?.block, undefined);
+  const result = await save(draft);
+  assert.ok(result.content[0].text.includes(draft));
+  assert.match(result.content[0].text, /approval/);
+  assert.equal(await readFile(path.join(cwd, draft), "utf8"), "# Draft\n");
+  await save(draft, "# Revised draft\n");
+  const linked = path.join(cwd, "docs/superpowers/specs/alias.md");
+  await symlink(path.join(cwd, draft), linked);
+  for (const invalid of ["models.py", "docs/superpowers/plans/plan.md", "docs/superpowers/specs/../plans/plan.md", linked]) {
+    await assert.rejects(() => save(invalid), /docs\/superpowers\/specs\//, invalid);
+  }
+  assert.equal(await readFile(path.join(cwd, draft), "utf8"), "# Revised draft\n");
+  await say(planning);
+  await start(planning);
+  await assert.rejects(() => save(draft), /design stage/);
+  assert.deepEqual(errors, []);
+});
+
+test("brainstorming saves a draft before approval on skill load and reread", async (context) => {
+  const { cwd, errors, say, start, runner } = await setup(context);
+  const prompt = "/skill:brainstorming " + brainstorm;
+  await say(prompt);
+  await start(prompt);
+  const file = brainstormingSkill.filePath;
+  const upstream = await readFile(file, "utf8");
+  const suffix = `\n</skill>\n\n${brainstorm}`;
+  const block = `<skill name="brainstorming" location="${file}">\n${upstream}${suffix}`;
+  const messages = [{ role: "user", content: [{ type: "text", text: block }], timestamp: Date.now() }];
+  const projected = await runner.emitContext(messages);
+  const loaded = projected[0].content[0].text;
+  assert.ok(loaded.endsWith(suffix));
+  assert.equal(messages[0].content[0].text, block);
+  const input = { path: path.relative(cwd, file) };
+  const read = await sdk.createReadTool(cwd).execute("read-skill", input, undefined, undefined);
+  const reread = await runner.emitToolResult({
+    type: "tool_result", toolName: "read", toolCallId: "read-skill", input, ...read, isError: false,
+  });
+  for (const text of [loaded, reread?.content[0].text]) {
+    assert.match(text, /save_design.*draft.*before asking for approval/i);
+    assert.match(text, /^- constraints\n- the acceptance criteria, copied verbatim from the input\n/m);
+    assert.match(text, /what's left to the builder/);
+    assert.doesNotMatch(text, /they pick in the conversation|gate goes with it/i);
+  }
+  assert.equal(await readFile(file, "utf8"), upstream);
   assert.deepEqual(errors, []);
 });
 
@@ -85,7 +169,8 @@ test("while planning with no new plan, refusals name the writing-plans skill and
   assert.ok(refused.reason.includes(writingPlans), refused.reason);
   assert.match(refused.reason, /only the user's approval unlocks/i);
   assert.equal(refused.terminate, undefined);
-  assert.equal((await call("write", { path: "docs/superpowers/plans/phase-4.md", content: "# Plan\n" }))?.block, undefined);
+  assert.match(refused.reason, /save_plan/);
+  assert.equal((await call("write", { path: "docs/superpowers/plans/phase-4.md", content: "# Plan\n" }))?.block, true);
   assert.equal((await call("read", { path: "models.py" }))?.block, undefined);
   assert.deepEqual(errors, []);
 });
@@ -103,24 +188,20 @@ test("a saved plan stays editable for self-review while implementation remains l
     assert.match(refused.reason, /docs\/superpowers\/plans\/phase-4\.md/);
     assert.match(refused.reason, /self-review/);
   }
-  assert.equal((await call("edit", { ...editModel, path: "docs/superpowers/plans/phase-4.md" }))?.block, undefined);
+  assert.equal((await call("edit", { ...editModel, path: "docs/superpowers/plans/phase-4.md" }))?.block, true);
+  assert.equal((await call("save_plan", { path: "docs/superpowers/plans/phase-4.md" }))?.block, undefined);
   assert.equal((await call("read", { path: "models.py" }))?.block, undefined);
   assert.deepEqual(errors, []);
 });
 
-test("planning may read the date and find files, but not change anything", async (context) => {
-  const { errors, say, start, call } = await setup(context);
+test("planning exposes read-only tools and save_plan without a shell", async (context) => {
+  const { errors, say, start, call, activeTools } = await setup(context);
   await say(planning);
   await start(planning);
-  for (const command of ["date", "date +%Y-%m-%d", "find docs -name '*plan*' -o -name '*plans*'", "find docs/superpowers -type f"]) {
-    assert.equal((await call("bash", { command }))?.block, undefined, command);
-  }
-  for (const command of [
-    "date -s 2020-01-01", "date 0101000020", "date; rm models.py", "find . -delete", "find docs -exec rm {} \;",
-    "find /etc -name passwd", "find ../ -name x", "find docs -name x > out.txt", "find docs -fprint out.txt",
-  ]) {
-    assert.equal((await call("bash", { command }))?.block, true, command);
-  }
+  assert.deepEqual(activeTools(), ["read", "ls", "find", "grep", "save_plan"]);
+  assert.equal((await call("find", { path: "docs", pattern: "*.md" }))?.block, undefined);
+  assert.equal((await call("bash", { command: "date" }))?.block, true);
+  assert.equal((await call("save_design", { path: "docs/superpowers/specs/phase-4.md" }))?.block, true);
   assert.deepEqual(errors, []);
 });
 
@@ -139,16 +220,17 @@ async function setupAll(context) {
   assert.deepEqual(loaded.errors, []);
   const session = sdk.SessionManager.inMemory(cwd);
   loaded.runtime.appendEntry = (customType, data) => session.appendCustomEntry(customType, data);
+  bindActiveTools(loaded.runtime);
   const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, cwd, session, undefined);
   const errors = [];
   runner.onError((error) => errors.push(error));
-  const tools = { write: sdk.createWriteTool(cwd), edit: sdk.createEditTool(cwd) };
   const say = (text) => runner.emitInput(text, undefined, "rpc");
   const start = (prompt) => runner.emitBeforeAgentStart({ messageType: "user", prompt }, { cwd, skills });
   async function run(toolName, input) {
     const decision = await runner.emitToolCall({ type: "tool_call", toolCallId: toolName, toolName, input });
     assert.equal(decision?.block, undefined);
-    const result = await tools[toolName].execute(toolName, input, undefined, undefined);
+    const tool = runner.getToolDefinition(toolName);
+    const result = await tool.execute(toolName, input, undefined, undefined, runner.createToolContext(toolName, undefined));
     return runner.emitToolResult({ type: "tool_result", toolCallId: toolName, toolName, input, ...result, isError: false });
   }
   return { cwd, errors, say, start, run };
@@ -200,12 +282,62 @@ test("a missing or unreadable planning skill warns with its path and allows plan
   const unreadable = await start(planning);
   assert.match(unreadable.messages[0].content, /Warning:.*\.pi\/skills\/fastapi-testing\/SKILL\.md.*could not be read/);
   const plan = "docs/superpowers/plans/workshop.md";
-  await run("write", { path: plan, content: "# Plan\n" });
+  await run("save_plan", { path: plan, content: "# Plan\n" });
   assert.equal(await readFile(path.join(cwd, plan), "utf8"), "# Plan\n");
   assert.deepEqual(errors, []);
 });
 
 const APPROVAL = "The plan looks good. Proceed with native execution.";
+
+test("save_plan runs existing plan checks and directs Pi to reread the saved plan", async (context) => {
+  const { cwd, errors, say, start, run } = await setupAll(context);
+  await say(planning);
+  await start(planning);
+  const plan = "docs/superpowers/plans/workshop.md";
+  const content = ["# Plan", "", "### 1: Route", "", "~~~bash", "pytest tests/test_board.py", "~~~", "",
+    "~~~python", "def test_placeholder():", "    pass", "~~~", "",
+    "~~~python", "def test_broken():", "    assert (", "~~~", "", "### 2. Board", ""].join("\n");
+  const saved = texts(await run("save_plan", { path: plan, content })).join("\n");
+  assert.match(saved, /read.*docs\/superpowers\/plans\/workshop\.md.*next/i);
+  assert.match(saved, /workshop\.md:\d+: test_placeholder contains only/);
+  assert.match(saved, /workshop\.md:\d+: Python test snippet does not parse/);
+  const onDisk = await readFile(path.join(cwd, plan), "utf8");
+  assert.match(onDisk, /^### Task 1: Route/m);
+  assert.match(onDisk, /uv run --frozen python -m pytest tests\/test_board\.py/);
+  for (const invalid of ["models.py", "docs/superpowers/specs/plan.md", "docs/superpowers/plans/../specs/plan.md"]) {
+    await assert.rejects(() => run("save_plan", { path: invalid, content }), /docs\/superpowers\/plans\//);
+  }
+  assert.deepEqual(errors, []);
+});
+
+test("writing-plans directs saved-file self-review on skill load and reread", async (context) => {
+  const { cwd, errors, say, start, runner } = await setup(context);
+  const prompt = "/skill:writing-plans " + planning;
+  await say(prompt);
+  await start(prompt);
+  const upstream = await readFile(writingPlans, "utf8");
+  const suffix = "\n</skill>\n\n" + planning;
+  const block = '<skill name="writing-plans" location="' + writingPlans + '">\n' + upstream + suffix;
+  const messages = [{ role: "user", content: [{ type: "text", text: block }], timestamp: Date.now() }];
+  const loaded = (await runner.emitContext(messages))[0].content[0].text;
+  assert.ok(loaded.endsWith(suffix));
+  assert.equal(messages[0].content[0].text, block);
+  const input = { path: path.relative(cwd, writingPlans) };
+  const read = await sdk.createReadTool(cwd).execute("read-skill", input, undefined, undefined);
+  const reread = await runner.emitToolResult({
+    type: "tool_result", toolName: "read", toolCallId: "read-skill", input, ...read, isError: false,
+  });
+  for (const text of [loaded, reread?.content[0].text]) {
+    assert.match(text, /save_plan/);
+    assert.match(text, /read.*saved plan.*next action/i);
+    assert.match(text, /## Self-Review/);
+    assert.match(text, /Spec coverage/);
+    assert.doesNotMatch(text, /Which execution approach would you prefer/);
+  }
+  assert.equal(await readFile(writingPlans, "utf8"), upstream);
+  assert.deepEqual(errors, []);
+});
+
 const scripts = path.join(executingSkill.baseDir, "scripts");
 const twoTasks = "# Plan\n\n### Task 1: Model\n\n- [ ] step\n\n### Task 2: Routes\n\n- [ ] step\n";
 const planMessages = (result) => result.messages.filter((m) => m.customType === "plan-note");
@@ -490,9 +622,15 @@ async function fakeUv(context, exitCode) {
   context.after(() => { process.env.PATH = saved; });
 }
 
-test("completion reports a green suite and leaves the final review open", async (context) => {
+test("completion reports a green suite and gives Pi repo-relative final review paths", async (context) => {
   await fakeUv(context, 0);
-  const { cwd, errors, result, call, emit } = await approvedRun(context, { withGit: true });
+  const { cwd, errors, result, call, emit, start } = await approvedRun(context, { withGit: true });
+  const packageDir = ".pi/git/github.com/obra/superpowers";
+  await mkdir(path.dirname(path.join(cwd, packageDir)), { recursive: true });
+  await symlink(path.resolve(process.env.SUPERPOWERS_DIR), path.join(cwd, packageDir));
+  const skillRoot = path.join(cwd, packageDir, "skills");
+  const baseDir = path.join(skillRoot, "executing-plans");
+  await start(APPROVAL, [{ ...executingSkill, baseDir, filePath: path.join(baseDir, "SKILL.md") }]);
   const base = git(cwd, "rev-parse", "HEAD");
   git(cwd, "-c", "user.email=t@localhost", "-c", "user.name=T", "commit", "-q", "--allow-empty", "-m", "implementation");
   await result(taskDone(1), ledgerLine(1));
@@ -501,19 +639,26 @@ test("completion reports a green suite and leaves the final review open", async 
   assert.equal(completed?.content[0].text, ledgerLine(2));
   assert.match(completed.content[1].text, /Every task in the plan is recorded and the full test suite passes/);
   const compacted = await emit(compactEvent(cwd));
-  const skillRoot = path.dirname(executingSkill.baseDir);
   const script = path.join(skillRoot, "subagent-driven-development/scripts/review-package");
-  const reviewer = path.join(skillRoot, "requesting-code-review/code-reviewer.md");
+  const reviewer = `${packageDir}/skills/requesting-code-review/code-reviewer.md`;
   const review = `'${script}' '${plan}' ${base} HEAD`;
   for (const text of [completed.content[1].text, compacted.compaction.summary]) {
     assert.ok(text.includes(review), text);
-    assert.ok(text.includes(reviewer), text);
+    assert.ok(text.includes(`\`${reviewer}\``), text);
     assert.match(text, /report.*stop for human verification/i);
     assert.doesNotMatch(text, /finishing-a-development-branch/);
   }
   const command = completed.content[1].text.match(/run `([^`]+)`/)?.[1];
   assert.equal(command, review);
-  assert.match(execFileSync("bash", ["-c", command], { cwd, encoding: "utf8" }), /wrote .*: 1 commit\(s\)/);
+  const existing = path.join(cwd, ".superpowers/sdd/2026-11-25-p");
+  await mkdir(existing, { recursive: true });
+  await writeFile(path.join(existing, "plan-path"), "docs/other/2026-11-25-p.md\n");
+  const output = execFileSync("bash", ["-c", command], { cwd, encoding: "utf8" });
+  assert.match(output, /wrote .*: 1 commit\(s\)/);
+  const packageResult = await result(command, output);
+  const diff = `.superpowers/sdd/2026-11-25-p-plans/review-${git(cwd, "rev-parse", "--short", base)}..${git(cwd, "rev-parse", "--short", "HEAD")}.diff`;
+  assert.ok(packageResult?.content[0].text.includes(`\`${diff}\``), packageResult?.content[0].text ?? output);
+  assert.match(await readFile(path.join(cwd, diff), "utf8"), /# Review package:/);
   assert.equal(await result(taskDone(2), ledgerLine(2)), undefined, "duplicate completion adds no reminder");
   assert.equal(await call("read", { path: "tests/test_phase4.py" }), undefined);
   assert.equal(await call("bash", { command: "uv run --frozen python -m pytest tests" }), undefined);

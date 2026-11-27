@@ -1,24 +1,29 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ContextEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { matchPrompt, projectConfig } from "./project-config.ts";
 
 const PLANS = "docs/superpowers/plans";
 const ENTRY = "plan-approval";
+const TOOLS_BEFORE_DRAFTING = "tools-before-design";
+const SAVE_DESIGN = "save_design";
+const SAVE_PLAN = "save_plan";
 const READ_TOOLS = new Set(["read", "ls", "find", "grep"]);
+const planReadback = (path?: string) => `Use \`read\` on ${path ? `\`${path}\`` : "the saved plan"} as your next action. ` +
+  "Complete the writing-plans self-review against the approved design and attached project guidance before asking for approval.";
 // The phase comes from the prompt that started the stage, through the patterns in .pi/project.json.
 const label = (phase: number | undefined) => (phase === undefined ? "Plan" : `Phase ${phase}`);
 const locked = (phase: number | undefined) => `${label(phase)} approval guard: code edits and commands stay locked ` +
   "until the user approves the plan. Only the user's approval unlocks them; editing design or plan files does not.";
 const designOnly = (phase: number | undefined) => locked(phase) +
-  " This turn only saves the design under docs/superpowers/specs/. Save it, reply with a short summary, and end your turn.";
+  " Use `save_design` to save the draft under docs/superpowers/specs/, reply with a short summary, and end your turn for approval.";
 const planOnly = (phase: number | undefined, skill: string | undefined) => locked(phase) +
   " This turn only writes the plan. Read the writing-plans skill" + (skill ? ` at ${skill}` : "") +
-  ", save the plan under docs/superpowers/plans/, complete its self-review, and present the plan for approval.";
+  ", then use `save_plan` to save it under docs/superpowers/plans/. " + planReadback();
 const planSaved = (phase: number | undefined, path: string) => locked(phase) +
-  ` Your plan is saved at ${path}. Continue the writing-plans self-review, revise the plan as needed, and present it for approval.`;
+  ` Your plan is saved at ${path}. Use \`save_plan\` for revisions. ` + planReadback(path);
 
 // Mellum read a bare refusal as "an odd message from a previous interaction" and ignored it,
 // so every refusal opens by naming the call it answers.
@@ -31,13 +36,6 @@ export function blockedCall(toolName: string, input: Record<string, unknown>): s
   return typeof input.path === "string" ? `${opening} on \`${input.path}\`.` : `${opening}.`;
 }
 
-const SHELL_ALLOWED = "Read-only `ls`, `pwd`, `git status`, `date`, and plain `find` with relative paths are allowed " +
-  "when they use no `|`, `||`, `;`, `&`, `>`, `2>` or `$(`; the read, find and grep tools are always allowed.";
-
-function refusal(toolName: string, input: Record<string, unknown>, stage: string): string {
-  return [blockedCall(toolName, input), stage, ...(toolName === "bash" ? [SHELL_ALLOWED] : [])].join(" ");
-}
-
 // Superpowers names files YYYY-MM-DD-<name>.md, but Pi's prompt has no date, so Mellum guessed:
 // `phase-4-design.md` and `2026-11-10-phase-4-design.md` on 2026-11-25.
 export function today(now = new Date()): string {
@@ -48,8 +46,8 @@ export function today(now = new Date()): string {
 // Each stage hears only its own folder: naming plans/ while brainstorming led Pi to write a plan
 // then too (4 of 4 runs, 2026-11-25), and that early plan kept approval locked.
 const dateNote = (date: string, stage: "design" | "planning") => stage === "design"
-  ? `Today is ${date}. Save the design as docs/superpowers/specs/${date}-<topic>-design.md.`
-  : `Today is ${date}. Save the plan as docs/superpowers/plans/${date}-<feature-name>.md.`;
+  ? `Today is ${date}. Use \`save_design\` to write docs/superpowers/specs/${date}-<topic>-design.md before asking for approval.`
+  : `Today is ${date}. Use \`save_plan\` to write docs/superpowers/plans/${date}-<feature-name>.md. ${planReadback()}`;
 
 export interface PlanTask { number: number; title: string }
 export interface PlanProgress { started: Record<number, { brief: string; base: string }>; recorded: number[] }
@@ -132,10 +130,11 @@ function statIfPresent(path: string) {
   }
 }
 
-function artifactPath(cwd: string, input: unknown): string | undefined {
+function artifactPath(cwd: string, input: unknown, kind?: "specs" | "plans"): string | undefined {
   if (typeof input !== "string" || input.split("/").includes("..")) return;
   const parts = relative(cwd, resolve(cwd, input)).split("/");
   if (parts[0] !== "docs" || parts[1] !== "superpowers" || !["plans", "specs"].includes(parts[2])) return;
+  if (kind && parts[2] !== kind) return;
   const filename = parts.at(-1);
   if (parts.length < 4 || !filename?.endsWith(".md")) return;
 
@@ -190,34 +189,6 @@ function gitOutput(cwd: string, ...args: string[]): string | undefined {
   }
 }
 
-// `find` actions that run or write something.
-const FIND_ACTIONS = new Set(["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]);
-
-function readOnlyShell(command: unknown): boolean {
-  if (typeof command !== "string") return false;
-  const trimmed = command.trim();
-  // Planning names plan files by date and looks for earlier plans; both only read.
-  if (/^date(?:[ \t]+\+[^\s;&|<>`$()]+)?$/.test(trimmed)) return true;
-  if (/^find[ \t]/.test(trimmed) && !/[;&|<>`$()\n\\]/.test(trimmed)) {
-    const args = trimmed.split(/[ \t]+/).slice(1);
-    const paths = args.slice(0, Math.max(0, args.findIndex((word) => word.startsWith("-"))) || args.length);
-    return args.every((word) => !FIND_ACTIONS.has(word))
-      && paths.every((path) => !path.startsWith("/") && !path.split("/").includes(".."));
-  }
-  const words = trimmed.split(/[ \t]+/);
-  if (!words.every((word) => /^[a-z0-9_./-]+$/i.test(word))) return false;
-  const [program, subcommand, ...args] = words;
-  if (program === "pwd") return words.length === 1;
-  if (program === "ls") {
-    return words.slice(1).every((word) => /^-[alh1]+$/.test(word)
-      || (!word.startsWith("-") && !word.startsWith("/") && !word.split("/").includes("..")));
-  }
-  if (program !== "git") return false;
-  if (subcommand === "status") return args.every((word) => ["--short", "--porcelain", "-sb", "-s"].includes(word));
-  if (subcommand === "ls-files") return args.length === 0;
-  return false;
-}
-
 const PLAN_NOTE = "plan-note";
 
 const REPORT_AND_STOP = "Report the final review and stop for human verification";
@@ -225,14 +196,23 @@ const FINAL_REVIEW_HANDOFF = "Complete the executing-plans final review. " + REP
   ". The user's finish prompt runs the checks and marks the phase done.";
 const ALL_DONE = "Every task in the plan is recorded and the full test suite passes.";
 
-function finalReviewInstructions(plan: string, base: string | undefined, skill: string | undefined): string {
+function repoRelativePath(cwd: string, file: string): string | undefined {
+  const target = resolve(cwd, file);
+  // Superpowers can print the physical path when Pi's cwd uses an alias such as /var.
+  return [cwd, realpathSync(cwd)].map((root) => relative(root, target))
+    .find((path) => path && !isAbsolute(path) && path.split(sep)[0] !== "..");
+}
+
+function finalReviewInstructions(cwd: string, plan: string, base: string | undefined, skill: string | undefined): string {
   if (!base || !skill) return FINAL_REVIEW_HANDOFF;
   const skills = dirname(dirname(skill));
   const script = join(skills, "subagent-driven-development", "scripts", "review-package");
-  const reviewer = join(skills, "requesting-code-review", "code-reviewer.md");
+  const reviewerFile = join(skills, "requesting-code-review", "code-reviewer.md");
+  const reviewer = repoRelativePath(cwd, reviewerFile) ?? reviewerFile;
   const quote = (arg: string) => "'" + arg.replaceAll("'", "'\"'\"'") + "'";
   return `For the final review, run \`${quote(script)} ${quote(plan)} ${base} HEAD\` from the project root. ` +
-    `Read the package it writes and \`${reviewer}\`. Include any uncommitted implementation changes in the review. ` +
+    `Use \`read\` on \`${reviewer}\` and the repo-relative diff path in the command result. ` +
+    "Include any uncommitted implementation changes in the review. " +
     FINAL_REVIEW_HANDOFF;
 }
 
@@ -253,22 +233,50 @@ export function compactionSummary(plan: string, note: string | undefined, status
 
 type ContextMessage = ContextEvent["messages"][number];
 
+function adaptBrainstorming(text: string): string {
+  // Keep the upstream design checklist and use the workshop's draft-first sequence.
+  // Mellum outlines the draft from this list, so the acceptance item goes in it (a separate sentence was skipped in 3 of 4 runs).
+  const checklist = text.split(/^## The Written Design$/m)[1]?.split("\n**Where it goes:**")[0].trim()
+    .replace(/^- constraints$/m, "- constraints\n- the acceptance criteria, copied verbatim from the input");
+  return [
+    "# Brainstorming the design draft",
+    "Read the roadmap or request as design input, and inspect only the source files needed to understand it.",
+    "Compare viable approaches, recommend one, and record any assumptions or open decisions as proposals in the draft.",
+    "Use `save_design` to write the Markdown draft under `docs/superpowers/specs/` before asking for approval. " +
+      "After the save succeeds, give its path, summarize the recommendation, and stop for the user's approval.",
+    "This stage is for design. Planning and implementation start in later turns after their respective approvals.",
+    checklist ? `## The Written Design\n\n${checklist}` : undefined,
+  ].filter(Boolean).join("\n\n");
+}
+
 function adaptExecutingPlans(text: string): string {
   // The pinned skill names the branch-finishing step in the process diagram and in the Finish section.
   return text.replaceAll("Use superpowers:finishing-a-development-branch", REPORT_AND_STOP);
 }
 
-function projectExecutingPlans(messages: ContextMessage[], path: string): ContextMessage[] | undefined {
-  const opening = `<skill name="executing-plans" location="${path}">`;
+function adaptWritingPlans(text: string): string {
+  const [guidance] = text.split("\n## Execution Handoff");
+  return [
+    guidance.trimEnd(),
+    "## Execution Handoff",
+    "Use `save_plan` to save the draft. " + planReadback(),
+    "Check that each acceptance criterion has a runnable test in its owning task and that the tests include their imports and setup. " +
+      "Use `save_plan` for corrections and reread the saved revision. Give the plan path and a short self-review summary, then stop for approval.",
+  ].join("\n\n");
+}
+
+function projectSkill(messages: ContextMessage[], name: string, path: string,
+  adapt: (text: string) => string): ContextMessage[] | undefined {
+  const opening = `<skill name="${name}" location="${path}">\n`;
   let changed = false;
   const project = (text: string) => {
     if (!text.startsWith(opening)) return text;
     const end = text.indexOf("\n</skill>");
     if (end < 0) return text;
-    const body = text.slice(0, end);
-    const adapted = adaptExecutingPlans(body);
+    const body = text.slice(opening.length, end);
+    const adapted = adapt(body);
     changed ||= adapted !== body;
-    return adapted + text.slice(end);
+    return opening + adapted + text.slice(end);
   };
   const out = messages.map((message) => message.role !== "user" ? message : {
     ...message,
@@ -303,18 +311,85 @@ function suitePasses(cwd: string): boolean {
 }
 
 
-export default function planApproval(pi: ExtensionAPI) {
+export default async function planApproval(pi: ExtensionAPI) {
+  const { Type } = await import("typebox");
+  const parameters = Type.Object({
+    path: Type.String({ description: "Repo-relative Markdown path in the tool's artifact folder" }),
+    content: Type.String({ description: "Complete Markdown draft" }),
+  });
+  const savers = [
+    { name: SAVE_DESIGN, stage: "design", kind: "specs", label: "Save design draft" },
+    { name: SAVE_PLAN, stage: "planning", kind: "plans", label: "Save implementation plan" },
+  ] as const;
+  for (const { name, stage, kind, label: toolLabel } of savers) {
+    const folder = "docs/superpowers/" + kind + "/";
+    pi.registerTool({
+      name,
+      label: toolLabel,
+      description: toolLabel + " as Markdown under " + folder + ". Pass the complete draft for each revision.",
+      defaultActive: false,
+      exposure: "model-only",
+      parameters,
+      async execute(_id, { path, content }, signal, _onUpdate, ctx) {
+        if (stateFor(ctx)?.status !== stage) throw new Error(name + " is available only in the " + stage + " stage.");
+        const target = artifactPath(ctx.cwd, path, kind);
+        if (!target) throw new Error("Choose a Markdown file under " + folder + " without path aliases.");
+        if (!content.trim()) throw new Error("Provide a nonempty Markdown draft.");
+        signal?.throwIfAborted();
+        const directory = dirname(target);
+        mkdirSync(directory, { recursive: true });
+        // Replace the complete draft in one step so a partial write cannot replace the previous draft.
+        const temporary = mkdtempSync(join(directory, ".save-draft-"));
+        try {
+          const draft = join(temporary, "draft.md");
+          writeFileSync(draft, content, "utf8");
+          renameSync(draft, target);
+        } finally {
+          rmSync(temporary, { recursive: true, force: true });
+        }
+        const saved = relative(realpathSync(ctx.cwd), target);
+        const text = stage === "design" ? "Saved design draft to " + saved + ". Summarize it and stop for approval."
+          : "Saved plan to " + saved + ". " + planReadback(saved);
+        return { content: [{ type: "text", text }], details: undefined };
+      },
+    });
+  }
+
+  let brainstorming: string | undefined;
   let writingPlans: string | undefined;
   let datedStage: string | undefined;
   let executingPlans: string | undefined;
   let approvalNote = false;
   const scriptsDir = () => (executingPlans ? join(dirname(executingPlans), "scripts") : "executing-plans/scripts");
+  const stageSkill = (state: PlanState | undefined) => {
+    if (state?.status === "design" && brainstorming) return { name: "brainstorming", file: brainstorming, adapt: adaptBrainstorming };
+    if (state?.status === "planning" && writingPlans) return { name: "writing-plans", file: writingPlans, adapt: adaptWritingPlans };
+    if (state?.status === "approved" && executingPlans) return { name: "executing-plans", file: executingPlans, adapt: adaptExecutingPlans };
+  };
   pi.on("before_agent_start", (event, ctx) => {
+    brainstorming = event.systemPromptOptions.skills.find((skill) => skill.name === "brainstorming")?.filePath ?? brainstorming;
     writingPlans = event.systemPromptOptions.skills.find((skill) => skill.name === "writing-plans")?.filePath ?? writingPlans;
     executingPlans = event.systemPromptOptions.skills.find((skill) => skill.name === "executing-plans")?.filePath ?? executingPlans;
+    const entry = stateEntry(ctx);
+    const state = entry?.data as PlanState | undefined;
+    if (state) {
+      const active = pi.getActiveTools();
+      const alreadyDrafting = active.includes(SAVE_DESIGN) || active.includes(SAVE_PLAN);
+      if (state.status === "design" || state.status === "planning") {
+        const saver = state.status === "design" ? SAVE_DESIGN : SAVE_PLAN;
+        if (!alreadyDrafting) pi.appendEntry(TOOLS_BEFORE_DRAFTING, active);
+        pi.setActiveTools([...active.filter((name) => READ_TOOLS.has(name)), saver]);
+      } else if (alreadyDrafting) {
+        // Pi also restores its last tool set when the session is reopened.
+        const previous = ctx.sessionManager.getBranch().findLast(
+          (item) => item.type === "custom" && item.customType === TOOLS_BEFORE_DRAFTING,
+        );
+        pi.setActiveTools(previous?.type === "custom" ? previous.data as string[]
+          : active.filter((name) => name !== SAVE_DESIGN && name !== SAVE_PLAN));
+      }
+    }
     if (approvalNote) {
       approvalNote = false;
-      const state = stateFor(ctx);
       if (state?.status !== "approved" || !state.plan) return;
       const note = planNote(state.plan, planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8")),
         state.progress ?? { started: {}, recorded: [] }, scriptsDir(), [],
@@ -322,8 +397,6 @@ export default function planApproval(pi: ExtensionAPI) {
       if (note) return { message: { customType: PLAN_NOTE, content: note, display: true } };
       return;
     }
-    const entry = stateEntry(ctx);
-    const state = entry?.data as PlanState | undefined;
     if (!entry || !state || unlocked(state) || entry.id === datedStage) return;
     datedStage = entry.id;
     let content = dateNote(today(), state.status);
@@ -345,15 +418,26 @@ export default function planApproval(pi: ExtensionAPI) {
   // printed ledger line records it. Kept in session entries, since the workspace can be deleted.
   pi.on("tool_result", (event, ctx) => {
     const state = stateFor(ctx);
-    if (state?.status !== "approved" || !state.plan || event.isError) return;
-    if (event.toolName === "read" && executingPlans && typeof event.input.path === "string" &&
-      resolve(ctx.cwd, event.input.path) === executingPlans) {
-      return { content: event.content.map((part) => part.type === "text"
-        ? { ...part, text: adaptExecutingPlans(part.text) } : part) };
+    if (event.isError) return;
+    if (event.toolName === "read" && typeof event.input.path === "string") {
+      const file = resolve(ctx.cwd, event.input.path);
+      const skill = stageSkill(state);
+      if (skill?.file === file) return { content: event.content.map((part) => part.type === "text"
+        ? { ...part, text: skill.adapt(part.text) } : part) };
     }
-    if (event.toolName !== "bash") return;
+    if (state?.status !== "approved" || !state.plan || event.toolName !== "bash") return;
     const command = (event.input as { command?: unknown }).command;
     if (typeof command !== "string") return;
+    if (/(?:^|\/)review-package['"]?(?:\s|$)/.test(command)) {
+      return { content: event.content.map((part) => {
+        if (part.type !== "text") return part;
+        const text = part.text.replace(/^wrote (.+\.diff): (\d+ commit\(s\), \d+ bytes)$/m, (line, file, stats) => {
+          const diff = repoRelativePath(ctx.cwd, file);
+          return diff ? `wrote ${diff}: ${stats}\nUse \`read\` with the repo-relative path \`${diff}\`.` : line;
+        });
+        return { ...part, text };
+      }) };
+    }
     const script = command.match(/executing-plans\/scripts\/(task-start|task-done)\s+(\S+)\s+(\d+)\b/);
     if (!script || resolve(ctx.cwd, script[2]) !== resolve(ctx.cwd, state.plan)) return;
     const text = event.content.map((item) => (item.type === "text" ? item.text : "")).join("\n");
@@ -372,7 +456,7 @@ export default function planApproval(pi: ExtensionAPI) {
     if (script[1] === "task-done") {
       const tasks = planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8"));
       if (tasks.length && tasks.every((task) => progress.recorded.includes(task.number)) && suitePasses(ctx.cwd)) {
-        const review = finalReviewInstructions(state.plan, state.head, executingPlans);
+        const review = finalReviewInstructions(ctx.cwd, state.plan, state.head, executingPlans);
         return { content: [...event.content, { type: "text", text: `${ALL_DONE}\n${review}` }] };
       }
     }
@@ -406,7 +490,7 @@ export default function planApproval(pi: ExtensionAPI) {
     if (state?.status !== "approved" || !state.plan) return;
     const note = currentNote(ctx, state);
     const summary = compactionSummary(state.plan, note, gitOutput(ctx.cwd, "status", "--short") ?? "",
-      event.preparation.fileOps, state.phase, finalReviewInstructions(state.plan, state.head, executingPlans));
+      event.preparation.fileOps, state.phase, finalReviewInstructions(ctx.cwd, state.plan, state.head, executingPlans));
     return { compaction: { summary, firstKeptEntryId: event.preparation.firstKeptEntryId,
       tokensBefore: event.preparation.tokensBefore } };
   });
@@ -416,9 +500,9 @@ export default function planApproval(pi: ExtensionAPI) {
   // result keep their place, so the conversation stays well formed.
   pi.on("context", (event, ctx) => {
     const state = stateFor(ctx);
-    if (state?.status !== "approved") return;
-    let messages = state.approvedAt ? stubPlanningResults(event.messages, state.approvedAt) : undefined;
-    if (executingPlans) messages = projectExecutingPlans(messages ?? event.messages, executingPlans) ?? messages;
+    let messages = state?.status === "approved" && state.approvedAt ? stubPlanningResults(event.messages, state.approvedAt) : undefined;
+    const skill = stageSkill(state);
+    if (skill) messages = projectSkill(messages ?? event.messages, skill.name, skill.file, skill.adapt) ?? messages;
     return messages ? { messages } : undefined;
   });
 
@@ -476,12 +560,14 @@ export default function planApproval(pi: ExtensionAPI) {
   pi.on("tool_call", (event, ctx) => {
     const state = stateFor(ctx);
     if (!state || unlocked(state) || READ_TOOLS.has(event.toolName)) return;
-    if ((event.toolName === "write" || event.toolName === "edit") && artifactPath(ctx.cwd, event.input.path)) return;
-    if (event.toolName === "bash" && readOnlyShell(event.input.command)) return;
     const input = event.input as Record<string, unknown>;
-    if (state.status === "design") return { block: true, reason: refusal(event.toolName, input, designOnly(state.phase)) };
+    if (state.status === "design") {
+      if (event.toolName === SAVE_DESIGN) return;
+      return { block: true, reason: `${blockedCall(event.toolName, input)} ${designOnly(state.phase)}` };
+    }
+    if (event.toolName === SAVE_PLAN) return;
     const saved = Object.entries(savedPlans(ctx.cwd)).find(([path, hash]) => hash !== state.previousPlans[path]);
     const guidance = saved ? planSaved(state.phase, saved[0]) : planOnly(state.phase, writingPlans);
-    return { block: true, reason: refusal(event.toolName, input, guidance) };
+    return { block: true, reason: `${blockedCall(event.toolName, input)} ${guidance}` };
   });
 }
