@@ -47,30 +47,14 @@ project layout are in this folder.
 - `Complaint("first", "First complaint")` still constructs and receives an automatic integer id. IDs stay stable and increase even after another complaint is removed. Seeded complaints have distinct ids.
 - Phases 1 and 2 still pass.
 
-## Phase 4 — Resolve and Reopen
+## Phase 4 — Resolve a Complaint
 
-- As an agent, I want each complaint to show "Open" or "Resolved" and a Resolve or Reopen button, so I can change its state.
-- As a visitor, I want resolving and reopening to redirect (303) and never reorder the board.
+As an agent, I want to resolve a complaint from the board and see that it has been addressed.
 
 **Acceptance.**
 
-- `Complaint` adds `status: str`, which starts as `open`. Resolve and Reopen use the stable ids already assigned in Phase 3.
-- Each card shows `Open` with a `Resolve` button, or `Resolved` with a `Reopen` button, in a form that posts to its route.
-- `POST /complaints/{id}/resolve` marks that complaint resolved and answers 303 with `Location: /complaints`; the board then shows `Resolved`.
-- `POST /complaints/{id}/reopen` marks it open and answers the same way.
-- Either route answers 404 for an id no complaint has.
-- Resolving or reopening never changes the board's order.
+- A new complaint starts open. Its card has a form that posts to `/complaints/{id}/resolve` using its assigned ID. Submitting it resolves the complaint in place and returns 303 with `Location: /complaints`. The card visibly shows that it is resolved, and the form disappears.
+- `POST /complaints/{id}/resolve` returns 404 for an unknown ID.
 - Phases 1 to 3 still pass.
 
-### Phase 4 verification and finish
-
-Run the test suite before finishing Phase 4 or marking it done.
-
-```sh
-uv run --frozen python -m pytest tests
-```
-
-Fix failures in the implementation or its tests, rerun the suite, and report
-the results.
-
-The README finish prompt runs the suite and marks Phase 4 done when it passes. Keep the current branch as-is and leave its commits on that branch.
+In the board test, check the parsed form method and action for the test complaint's assigned ID.

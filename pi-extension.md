@@ -141,6 +141,13 @@ one run in each arm.
 `.gitignore` and so cannot walk `.venv`. In one rehearsal a shell `find .` walked
 `.venv`, returned about 21,000 tokens and forced a compaction.
 
+[`.rgignore`](.rgignore) excludes `.git` from Pi's default recursive `grep`.
+After a reset, a search once surfaced reflog entries from a previous Phase 4
+run and led Pi to treat those commits as current work. Keep `.git` as the only
+entry until a search shows another specific source of noise. `.gitignore`
+already covers virtual environments, caches, Superpowers scratch files, and
+Pi's package checkout. An explicit glob such as `*` can override the rule.
+
 [`frozen-pytest-plans.ts`](pi-extensions/frozen-pytest-plans.ts) rewrites
 commands in Markdown plans saved under `docs/superpowers/plans/`: in shell
 fences, after `Run:` or `Command:` labels, and in inline code spans. Bare pytest

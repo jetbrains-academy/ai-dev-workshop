@@ -70,7 +70,7 @@ select Mellum through LM Studio. Set Pi’s thinking level to High and use the
 [60K context setting](setup.md#lm-studio).
 
 ```
-/skill:brainstorming Brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/.
+/skill:brainstorming Brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/. Limit file changes to the design document.
 ```
 
 If Pi asks brainstorming questions, reply with this.
@@ -97,7 +97,7 @@ If planning stops right after Pi saves its plan, review the plan and send the
 approval prompt.
 
 After execution, send the finish prompt. Pi runs the test suite with the
-[exact command in the roadmap](specs/roadmap.md#phase-4-verification-and-finish)
+[exact command in AGENTS.md](AGENTS.md#working-in-this-repo)
 and marks Phase 4 done when it passes. If it fails, fix the reported failure and
 send the same finish prompt again.
 
