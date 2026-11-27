@@ -288,7 +288,7 @@ function projectSkill(messages: ContextMessage[], name: string, path: string,
 
 export function stubPlanningResults(messages: ContextMessage[], approvedAt: number): ContextMessage[] | undefined {
   let changed = false;
-  const out = messages.map((message) => {
+  const out = messages.map((message): ContextMessage => {
     if (message.role !== "toolResult" || typeof message.timestamp !== "number" || message.timestamp >= approvedAt) return message;
     const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
     if (text.length < 200) return message;

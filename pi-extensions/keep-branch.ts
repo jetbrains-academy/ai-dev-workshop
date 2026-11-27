@@ -161,12 +161,15 @@ export default function keepBranch(pi: ExtensionAPI) {
       (event.toolName === "write" || event.toolName === "edit") &&
       typeof event.input.path === "string" && resolve(ctx.cwd, event.input.path) === join(ctx.cwd, roadmap.path)
     ) {
-      let next = event.toolName === "write" ? event.input.content : current ?? "";
-      if (event.toolName === "edit" && Array.isArray(event.input.edits)) {
-        for (const { oldText, newText } of event.input.edits) next = next.replace(oldText, () => newText);
+      const content = event.toolName === "write" ? event.input.content : current ?? "";
+      if (typeof content === "string") {
+        let next = content;
+        if (event.toolName === "edit" && Array.isArray(event.input.edits)) {
+          for (const { oldText, newText } of event.input.edits) next = next.replace(oldText, () => newText);
+        }
+        const marked = newlyDone(now, headings(next, roadmap.template));
+        if (marked.length) return { block: true, reason: finishOnly(marked[0]) };
       }
-      const marked = typeof next === "string" ? newlyDone(now, headings(next, roadmap.template)) : [];
-      if (marked.length) return { block: true, reason: finishOnly(marked[0]) };
       before.set(event.toolCallId, now);
     }
   });
