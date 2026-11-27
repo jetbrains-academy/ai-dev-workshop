@@ -1,0 +1,2 @@
+# Keep Git metadata and reflogs out of recursive content searches.
+.git
