@@ -70,7 +70,7 @@ select Mellum through LM Studio. Set Pi’s thinking level to High and use the
 [60K context setting](setup.md#lm-studio).
 
 ```
-/skill:brainstorming Brainstorm Phase 4 in specs/roadmap.md and save the design under docs/superpowers/specs/. Limit file changes to the design document.
+/skill:brainstorming Only write the design document under docs/superpowers/specs/. Brainstorm Phase 4 from specs/roadmap.md, save the design, and stop for approval.
 ```
 
 If Pi asks brainstorming questions, reply with this.
