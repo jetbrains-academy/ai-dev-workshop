@@ -98,11 +98,16 @@ offered Subagent-driven anyway, and the choice never changed what ran.
 ### Activate or roll back
 
 The project configuration in `.pi/settings.json` uses portable relative paths.
+It pins Superpowers 7.0.2 as a project package, which Pi installs under
+`.pi/git/github.com/obra/superpowers/` for this checkout.
 The demo uses Superpowers' `executing-plans` skill to run tasks in the current
 Pi session. Saved plans point at that skill.
 
 ```json
 {
+  "packages": [
+    "git:github.com/obra/superpowers@22f0b463e7a5e579904dd6211a520321035526f7"
+  ],
   "extensions": [
     "../pi-extensions/project-check.ts",
     "../pi-extensions/superpowers-unbootstrap.ts",

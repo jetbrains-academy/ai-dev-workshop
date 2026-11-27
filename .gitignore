@@ -5,4 +5,5 @@ __pycache__/
 .worktrees/
 .agents/
 .claude/
+/.pi/git/
 progress.md

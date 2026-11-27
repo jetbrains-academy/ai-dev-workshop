@@ -16,5 +16,8 @@
   ],
   "compaction": {
     "keepRecentTokens": 8000
-  }
+  },
+  "packages": [
+    "git:github.com/obra/superpowers@22f0b463e7a5e579904dd6211a520321035526f7"
+  ]
 }
