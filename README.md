@@ -52,9 +52,11 @@ Use Superpowers to finish the development branch, then mark Phase 2 in the roadm
 ```
 ### Phase 3 (Junie Lite + Superpowers)
 ```
-Use Superpowers to brainstorm Phase 3 in specs/roadmap.md
+Do **not** use Junie Plan mode.
+Use Superpowers to brainstorm Phase 3 in specs/roadmap.md.
 ```
 ```
+Do **not** use Junie Plan mode.
 The Phase 3 design looks good. Please proceed with implementation planning.
 ```
 ```
@@ -81,7 +83,7 @@ Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Sav
 After approving the design, send the planning prompt.
 
 ```
-The Phase 4 design looks good. Please proceed with implementation planning.
+The Phase 4 design looks good. Please proceed with planning.
 ```
 
 ```
@@ -95,4 +97,6 @@ with the corresponding prompt. If it sends an empty reply, send `Continue.`
 - [Slides](https://docs.google.com/presentation/d/e/2PACX-1vSxY7nTT7oZjhovtbsiWKnhvTxcHDCvtyddrrFwDqpvDAto1MxBFTkWPCpP57eqIs_BMHgtA-exAkpK/pub?start=false&loop=false&delayms=3000)
 - [Event page](https://ai-dev.deeplearning.ai/agenda/advanced-spec-driven-development)
 - [DLAI Discord community](https://discord.gg/SYsha83PS)
-- Leave feedback to the next course (coming soon)
+- [Form: Help Shape Our Next AI Coding Course](https://forms.gle/QxRub8YMyTc3mdgw6)
+- [Spec-Driven Development with Coding Agents Course](https://www.deeplearning.ai/courses/spec-driven-development-with-coding-agents)
+- [AI Coding Workflows: From Cloud to Local Course](https://www.deeplearning.ai/courses/ai-coding-workflows-from-cloud-to-local)
