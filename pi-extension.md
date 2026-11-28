@@ -159,7 +159,17 @@ server start, as the live-server guard recognises it, becomes
 `uv run --frozen python -m pytest tests`, unless the words just before it forbid
 it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
 Python code blocks stay as written.
-The save result warns with the plan line for a `pass`-only test or a fenced Python test snippet that fails to parse.
+The save result warns about a `pass`-only test or a fenced Python test snippet that fails to parse. Each warning
+names the test and its plan line, and the warnings come first, under "Fix these in the plan with `save_plan` and
+reread it before asking for approval". In a 2026-11-27 headless run the older warning came after the reread
+instruction and gave a snippet line; `read` shows no line numbers, so Mellum looked in the wrong place, decided the
+warning was "harmless", and asked for approval. The warnings never block a save.
+
+A last task that only reruns the tests, and maybe commits, is removed from the saved plan: no non-shell code
+block, no `Create:` or `Modify:` file, and every command is the project's `pytest` or `git`. The result says
+"Removed Task N (…): it only reran the tests, and the finish step runs the test suite." On 2026-11-27, 3 of 7
+headless plans ended in such a task ("Verify Phase 1-3 still pass", sometimes with manual steps such as
+"Visit /complaints"). No reread and neither repair prompt folded it in, so the save does it.
 Until 2026-11-26 a route path written the Flask way, `/<int:id>`, was also rewritten to `{id}` (two runs had
 copied such a path into `app.py` and spent 10 and 30 minutes on probes); that rewrite was removed with the move to
 the project config. A plan with no `Task N` headings but two or more numbered
@@ -189,7 +199,16 @@ the workshop's draft-before-approval sequence on skill load and reread. During
 planning, Pi gets read-only tools and `save_plan`, which writes Markdown under
 `docs/superpowers/plans/` and runs the existing plan checks. The adapted
 `writing-plans` skill asks Pi to reread the saved plan and complete its
-self-review before asking for approval. To enable implementation, wait for Pi
+self-review before asking for approval. The README's repair prompt also matches
+the planning prompt; it keeps the plans recorded when planning began, so a plan
+saved earlier stays approvable when the repair saves nothing new. A repair turn no
+longer gets the date and FastAPI guidance note again: in both 2026-11-27 repair
+turns that note came last, and Mellum answered it instead of the request. It gets
+the saved plan's check results (`pass`-only tests and test snippets that do not
+parse), or nothing. When planning ends with such findings still in the saved plan,
+the `agent_before_settle` hook has Pi make one more request with the findings as
+its last message. That happens once per planning stage; after that the presenter
+gets the findings as a notification. To enable implementation, wait for Pi
 to save and review a new or revised plan and stop,
 then send the approval prompt from the [README](README.md#phase-4-pi--mellum--superpowers).
 The guard records approval in the Pi session branch and restores the prior tool set.

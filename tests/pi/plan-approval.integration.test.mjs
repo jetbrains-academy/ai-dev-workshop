@@ -299,8 +299,9 @@ test("save_plan runs existing plan checks and directs Pi to reread the saved pla
     "~~~python", "def test_broken():", "    assert (", "~~~", "", "### 2. Board", ""].join("\n");
   const saved = texts(await run("save_plan", { path: plan, content })).join("\n");
   assert.match(saved, /read.*docs\/superpowers\/plans\/workshop\.md.*next/i);
-  assert.match(saved, /workshop\.md:\d+: test_placeholder contains only/);
-  assert.match(saved, /workshop\.md:\d+: Python test snippet does not parse/);
+  assert.match(saved, /^Fix these in the plan with `save_plan`/);
+  assert.match(saved, /`test_placeholder` in docs\/superpowers\/plans\/workshop\.md:\d+ contains only/);
+  assert.match(saved, /`test_broken` in docs\/superpowers\/plans\/workshop\.md:\d+ does not parse/);
   const onDisk = await readFile(path.join(cwd, plan), "utf8");
   assert.match(onDisk, /^### Task 1: Route/m);
   assert.match(onDisk, /uv run --frozen python -m pytest tests\/test_board\.py/);
@@ -355,6 +356,82 @@ test("the executing-plans approval prompt unlocks execution and brings one plan 
   assert.equal(notes.length, 1);
   assert.equal(notes[0].content, planNote(plan, planTasks(twoTasks), { started: {}, recorded: [] }, scripts, [], NOTE_CONTEXT));
   assert.equal(planMessages(await start("Continue.")).length, 0);
+  assert.deepEqual(errors, []);
+});
+
+test("a repair prompt that leaves the saved plan unchanged keeps it approvable", async (context) => {
+  const { cwd, errors, say, start, call } = await setup(context);
+  await say(planning);
+  await start(planning);
+  const plan = "docs/superpowers/plans/2026-11-27-p.md";
+  await writeFile(path.join(cwd, plan), twoTasks);
+  const repair = "/skill:writing-plans Reread the saved Phase 4 plan against the roadmap. Edit only the plan and stop for approval.";
+  await say(repair);
+  await start(repair);
+  assert.equal((await call("edit", editModel))?.block, true);
+  await say("/skill:executing-plans " + APPROVAL);
+  assert.equal((await call("edit", editModel))?.block, undefined);
+  assert.deepEqual(errors, []);
+});
+
+const stubPlan = "# Plan\n\n### Task 1: Route\n\n```python\ndef test_route():\n    pass\n```\n";
+const repairPrompt = "Reread the saved Phase 4 plan against the roadmap. Edit only the plan and stop for approval.";
+const settle = (runner, outcome = "completed") => runner.emitBoundary({ type: "agent_before_settle", outcome },
+  async () => ({ contextEntries: [], contextMessages: [], llmMessages: [], pendingMessages: [], canContinue: true }));
+const commit = (session, entries) => {
+  for (const entry of entries) {
+    if (entry.type === "custom") session.appendCustomEntry(entry.customType, entry.data);
+  }
+};
+
+test("a repair prompt gets the saved plan's check results instead of a second guidance note", async (context) => {
+  const { cwd, errors, say, start } = await setup(context);
+  await say(planning);
+  const first = await start(planning);
+  assert.match(first.messages.map((m) => m.content).join("\n"), /^Today is .*\n\n.*Planning skill/s);
+  const plan = "docs/superpowers/plans/2026-11-27-p.md";
+  await writeFile(path.join(cwd, plan), stubPlan);
+  await say(repairPrompt);
+  const repair = await start(repairPrompt);
+  const text = (repair?.messages ?? []).map((m) => m.content).join("\n");
+  assert.doesNotMatch(text, /Planning skill|project guidance|Today is/);
+  assert.match(text, /^Plan check for docs\/superpowers\/plans\/2026-11-27-p\.md\. Fix these in the plan/);
+  assert.match(text, /`test_route` in docs\/superpowers\/plans\/2026-11-27-p\.md:\d+ contains only `pass`/);
+  await writeFile(path.join(cwd, plan), twoTasks);
+  await say(repairPrompt);
+  assert.equal((await start(repairPrompt))?.messages?.length ?? 0, 0);
+  assert.deepEqual(errors, []);
+});
+
+test("with findings left at the end of planning, Pi continues once with them, then the presenter is told", async (context) => {
+  const { cwd, session, errors, say, start, call, runner } = await setup(context);
+  const notes = [];
+  runner.setUIContext({ notify: (message, level) => notes.push({ message, level }) });
+  await say(planning);
+  await start(planning);
+  assert.equal((await settle(runner)).continue, false);
+  const plan = "docs/superpowers/plans/2026-11-27-p.md";
+  await writeFile(path.join(cwd, plan), stubPlan);
+  assert.equal((await settle(runner, "aborted")).continue, false);
+  const nudge = await settle(runner);
+  assert.equal(nudge.continue, true);
+  const message = nudge.entries.find((entry) => entry.type === "custom_message");
+  assert.equal(message.customType, "plan-check");
+  assert.match(message.content, /`test_route` in .*contains only `pass`/);
+  commit(session, nudge.entries);
+  const again = await settle(runner);
+  assert.equal(again.continue, false);
+  assert.match(notes.at(-1)?.message ?? "", /`test_route`/);
+  // A repair prompt keeps the stage's single continuation spent.
+  await say(repairPrompt);
+  await start(repairPrompt);
+  assert.equal((await settle(runner)).continue, false);
+  await writeFile(path.join(cwd, plan), twoTasks);
+  notes.length = 0;
+  assert.equal((await settle(runner)).continue, false);
+  assert.deepEqual(notes, []);
+  await say("/skill:executing-plans " + APPROVAL);
+  assert.equal((await call("edit", editModel))?.block, undefined);
   assert.deepEqual(errors, []);
 });
 

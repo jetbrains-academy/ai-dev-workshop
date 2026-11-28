@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ContextEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { FIX_FIRST, planWarnings } from "./frozen-pytest-plans.ts";
 import { matchPrompt, projectConfig } from "./project-config.ts";
 
 const PLANS = "docs/superpowers/plans";
@@ -47,7 +48,7 @@ export function today(now = new Date()): string {
 // then too (4 of 4 runs, 2026-11-25), and that early plan kept approval locked.
 const dateNote = (date: string, stage: "design" | "planning") => stage === "design"
   ? `Today is ${date}. Use \`save_design\` to write docs/superpowers/specs/${date}-<topic>-design.md before asking for approval.`
-  : `Today is ${date}. Use \`save_plan\` to write docs/superpowers/plans/${date}-<feature-name>.md. ${planReadback()}`;
+  : `Today is ${date}. Use \`save_plan\` to write docs/superpowers/plans/${date}-<feature-name>.md.`;
 
 export interface PlanTask { number: number; title: string }
 export interface PlanProgress { started: Record<number, { brief: string; base: string }>; recorded: number[] }
@@ -104,7 +105,7 @@ export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress
 
 type PlanState = { phase?: number } & (
   | { status: "design" }
-  | { status: "planning"; previousPlans: Record<string, string> }
+  | { status: "planning"; previousPlans: Record<string, string>; repairNudged?: boolean }
   | { status: "approved"; plan?: string; progress?: PlanProgress; head?: string; staleLedger?: number[];
       approvedAt?: number }
   | { status: "finished" });
@@ -120,6 +121,23 @@ function stateEntry(ctx: ExtensionContext) {
 
 function stateFor(ctx: ExtensionContext): PlanState | undefined {
   return stateEntry(ctx)?.data as PlanState | undefined;
+}
+
+// The plan saved during this planning stage: the newest new or changed plan, preferring one with tasks.
+function freshPlan(cwd: string, state: PlanState | undefined): string | undefined {
+  if (state?.status !== "planning") return;
+  const fresh = Object.entries(savedPlans(cwd)).filter(([path, hash]) => hash !== state.previousPlans[path]).map(([path]) => path);
+  if (!fresh.length) return;
+  const withTasks = fresh.filter((path) => planTasks(readFileSync(join(cwd, path), "utf8")).length);
+  return (withTasks.length ? withTasks : fresh).reduce((a, b) =>
+    (lstatSync(join(cwd, b)).mtimeMs > lstatSync(join(cwd, a)).mtimeMs ? b : a));
+}
+
+const PLAN_CHECK = "plan-check";
+
+function planFindings(cwd: string, plan: string): string | undefined {
+  const warnings = planWarnings(cwd, projectConfig(cwd), plan, readFileSync(join(cwd, plan), "utf8"));
+  return warnings.length ? [`Plan check for ${plan}. ${FIX_FIRST}`, ...warnings].join("\n") : undefined;
 }
 
 function statIfPresent(path: string) {
@@ -260,8 +278,7 @@ function adaptWritingPlans(text: string): string {
     guidance.trimEnd(),
     "## Execution Handoff",
     "Use `save_plan` to save the draft. " + planReadback(),
-    "Check that each acceptance criterion has a runnable test in its owning task and that the tests include their imports and setup. " +
-      "Use `save_plan` for corrections and reread the saved revision. Give the plan path and a short self-review summary, then stop for approval.",
+    "Use `save_plan` for corrections and reread the saved revision. Give the plan path and a short self-review summary, then stop for approval.",
   ].join("\n\n");
 }
 
@@ -399,6 +416,14 @@ export default async function planApproval(pi: ExtensionAPI) {
     }
     if (!entry || !state || unlocked(state) || entry.id === datedStage) return;
     datedStage = entry.id;
+    // A repair prompt continues planning with a plan already saved. In both 2026-11-27 repair turns the re-attached
+    // date and guidance note came last, and Mellum answered it ("update the plan to incorporate FastAPI testing
+    // guidance") instead of the request. Give it only what the plan check finds, or nothing.
+    const repairing = freshPlan(ctx.cwd, state);
+    if (repairing) {
+      const findings = planFindings(ctx.cwd, repairing);
+      return findings ? { message: { customType: PLAN_CHECK, content: findings, display: true } } : undefined;
+    }
     let content = dateNote(today(), state.status);
     const skill = state.status === "planning" ? projectConfig(ctx.cwd).planningSkill : undefined;
     if (skill) {
@@ -526,8 +551,13 @@ export default async function planApproval(pi: ExtensionAPI) {
     }
     const planning = matchPrompt(prompts.plan, event.text)?.phase;
     if (planning !== undefined) {
+      // A repair prompt ("Reread the saved Phase 4 plan…") also matches. Keep the baseline from when planning
+      // began, so a plan saved earlier in this stage stays approvable even if the repair saves nothing new.
+      const current = stateFor(ctx);
+      const continuing = current?.status === "planning" && current.phase === planning ? current : undefined;
       pi.appendEntry<PlanState>(ENTRY, {
-        status: "planning", phase: planning, previousPlans: savedPlans(ctx.cwd),
+        status: "planning", phase: planning, previousPlans: continuing?.previousPlans ?? savedPlans(ctx.cwd),
+        ...(continuing?.repairNudged ? { repairNudged: true } : {}),
       });
       return;
     }
@@ -538,14 +568,8 @@ export default async function planApproval(pi: ExtensionAPI) {
     if (!matchPrompt(prompts.approve, event.text)) return;
     const state = stateFor(ctx);
     if (!state || unlocked(state)) return;
-    const fresh = state.status === "planning"
-      ? Object.entries(savedPlans(ctx.cwd)).filter(([path, hash]) => hash !== state.previousPlans[path]).map(([path]) => path)
-      : [];
-    if (!event.streamingBehavior && ctx.isIdle() && fresh.length) {
-      const newest = (paths: string[]) =>
-        paths.reduce((a, b) => (lstatSync(join(ctx.cwd, b)).mtimeMs > lstatSync(join(ctx.cwd, a)).mtimeMs ? b : a));
-      const withTasks = fresh.filter((path) => planTasks(readFileSync(join(ctx.cwd, path), "utf8")).length);
-      const plan = newest(withTasks.length ? withTasks : fresh);
+    const plan = freshPlan(ctx.cwd, state);
+    if (!event.streamingBehavior && ctx.isIdle() && plan) {
       pi.appendEntry<PlanState>(ENTRY, {
         status: "approved", phase: state.phase, plan, progress: { started: {}, recorded: [] },
         head: gitOutput(ctx.cwd, "rev-parse", "HEAD"), staleLedger: readLedger(ctx.cwd, plan), approvedAt: Date.now(),
@@ -555,6 +579,27 @@ export default async function planApproval(pi: ExtensionAPI) {
     }
     ctx.ui.notify(`${label(state?.phase)} is still locked. Approve after Pi has saved its plan and stopped.`, "warning");
     return { action: "handled" };
+  });
+
+  // Planning ends with Mellum's reply. If the saved plan still has a mechanical finding, Pi makes one more request,
+  // with the findings as its last message (Mellum answers the last message, not one inside a tool result: 0 of 7
+  // rereads revised a plan). Once per planning stage; after that the presenter sees the findings instead.
+  pi.on("agent_before_settle", (event, ctx) => {
+    const state = stateFor(ctx);
+    if (state?.status !== "planning" || event.outcome !== "completed") return;
+    const plan = freshPlan(ctx.cwd, state);
+    const findings = plan && planFindings(ctx.cwd, plan);
+    if (!findings) return;
+    if (state.repairNudged) {
+      ctx.ui.notify(findings, "warning");
+      return;
+    }
+    return {
+      entries: [...event.entries,
+        { type: "custom", customType: ENTRY, data: { ...state, repairNudged: true } },
+        { type: "custom_message", customType: PLAN_CHECK, content: findings, display: true }],
+      continue: true,
+    };
   });
 
   pi.on("tool_call", (event, ctx) => {

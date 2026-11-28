@@ -10,6 +10,8 @@ const sdk = await import(pathToFileURL(path.join(process.env.PI_PACKAGE_DIR, "di
 const settingsPath = new URL("../../.pi/settings.json", import.meta.url);
 const settings = JSON.parse(await readFile(settingsPath, "utf8"));
 
+const FIX_FIRST = "Fix these in the plan with `save_plan` and reread it before asking for approval:";
+
 test("Pi saves frozen pytest commands before returning a plan write or edit", async (context) => {
   const cwd = await mkdtemp(path.join(tmpdir(), "pi-plan-commands-"));
   context.after(() => rm(cwd, { recursive: true, force: true }));
@@ -83,11 +85,36 @@ test("Pi warns with the plan line for a pass-only test and leaves the draft inta
     type: "tool_result", toolCallId: "write", toolName: "write", input, ...result, isError: false,
   });
 
+  // The warning leads the result, ahead of the tool's own "reread, then ask for approval" text.
   assert.deepEqual(response?.content, [
+    { type: "text", text: `${FIX_FIRST}\nWarning: \`test_route\` in ${plan}:6 contains only \`pass\`. Replace it with a complete test.` },
     ...result.content,
-    { type: "text", text: `Warning: ${plan}:6: test_route contains only \`pass\`. Replace it with a complete test.` },
   ]);
   assert.equal(await readFile(path.join(cwd, plan), "utf8"), draft);
+});
+
+test("a saved plan loses a last task that only reruns the tests, and the result says so", async (context) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), "pi-plan-verify-"));
+  context.after(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(path.join(cwd, ".pi"));
+  await writeFile(path.join(cwd, ".pi/project.json"), await readFile(new URL("../../.pi/project.json", import.meta.url)));
+  const extension = fileURLToPath(new URL("../../pi-extensions/frozen-pytest-plans.ts", import.meta.url));
+  const loaded = await sdk.discoverAndLoadExtensions([extension], cwd, cwd);
+  assert.deepEqual(loaded.errors, []);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sdk.SessionManager.inMemory(cwd), undefined);
+  const plan = "docs/superpowers/plans/phase4.md";
+  const kept = ["# Phase 4", "", "### Task 1: Route", "", "- Modify: `app.py`", "", "```python", "def test_route():",
+    "    assert True", "```", ""].join("\n");
+  const draft = kept + ["### Task 2: Verify all phases still pass", "", "Run: `pytest tests -v`", "",
+    "```bash", "git commit -m \"test: verify\"", "```", ""].join("\n");
+  const input = { path: plan, content: draft };
+  const result = await sdk.createWriteTool(cwd).execute("write", input, undefined, undefined);
+  const response = await runner.emitToolResult({
+    type: "tool_result", toolCallId: "write", toolName: "write", input, ...result, isError: false,
+  });
+  assert.equal(await readFile(path.join(cwd, plan), "utf8"), kept);
+  assert.match(response.content.at(-1).text,
+    /Removed Task 2 \("Verify all phases still pass"\) from docs\/superpowers\/plans\/phase4\.md: it only reran the tests/);
 });
 
 test("Pi warns with plan lines for invalid Python test snippets and leaves the draft intact", async (context) => {
@@ -115,11 +142,13 @@ test("Pi warns with plan lines for invalid Python test snippets and leaves the d
 
   assert.ok(response, "return a syntax warning with the successful write");
   assert.equal(response.isError, false);
-  assert.deepEqual(response.content.slice(0, -1), result.content);
-  const warnings = response.content.at(-1).text.split("\n");
+  assert.deepEqual(response.content.slice(1), result.content);
+  const [header, ...warnings] = response.content[0].text.split("\n");
+  assert.equal(header, FIX_FIRST);
   assert.equal(warnings.length, 2);
-  assert.ok(warnings[0].startsWith(`Warning: ${plan}:5: Python test snippet`), warnings[0]);
-  assert.match(warnings[0], /expected an indented block/);
-  assert.ok(warnings[1].startsWith(`Warning: ${plan}:10: Python test snippet`), warnings[1]);
+  // Named by the test that holds the error, with plan lines rather than snippet lines.
+  assert.equal(warnings[0], `Warning: \`test_route\` in ${plan}:5 does not parse: ` +
+    "expected an indented block after function definition on line 4. Give it a complete body.");
+  assert.ok(warnings[1].startsWith(`Warning: \`test_board\` in ${plan}:10 does not parse: `), warnings[1]);
   assert.equal(await readFile(path.join(cwd, plan), "utf8"), draft);
 });

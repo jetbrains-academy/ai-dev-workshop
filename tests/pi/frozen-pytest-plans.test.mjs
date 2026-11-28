@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { freezePlanCommands, nativePlanHeader } from "../../pi-extensions/frozen-pytest-plans.ts";
+import { dropVerificationTask, freezePlanCommands, nativePlanHeader } from "../../pi-extensions/frozen-pytest-plans.ts";
 import { fileURLToPath } from "node:url";
 import { projectConfig } from "../../pi-extensions/project-config.ts";
 const config = projectConfig(fileURLToPath(new URL("../../", import.meta.url)));
@@ -108,4 +108,54 @@ test("numbered plan headings without Task become Task headings", async () => {
 test("with no commands in the project config a plan is left as written", () => {
   const plan = lines("Run: `pytest tests -v`", "```bash", "uvicorn app:app", "python -c 'x'", "```");
   assert.deepEqual(freezePlanCommands(plan, {}), { markdown: plan, serverStarts: 0 });
+});
+
+// A last task that only reruns the tests (and commits) came out of 3 of 7 headless plans on 2026-11-27;
+// the finish step already runs the suite, and its manual steps ("Visit /complaints") cannot run headless.
+const tasksBefore = lines(
+  "# Plan", "", "### Task 1: Model", "", "- Modify: `models.py`", "", "```python", "def test_model():", "    assert True", "```", "",
+  "### Task 2: Route", "", "- Modify: `app.py`", "", "Run: `" + SUITE + "`", "",
+);
+
+test("drops a last task that only runs the project's tests and git", () => {
+  const plan = tasksBefore + lines(
+    "### Task 3: Verify Phase 1-3 still pass", "", "**Files:**", "- Run existing tests", "",
+    "- [ ] **Step 1: Run the suite**", "  Run: `uv run --frozen python -m pytest tests/test_home.py -v`", "  Expected: PASS", "",
+    "- [ ] **Step 2: Commit**", "  ```bash", "  git add .  # everything", "  git commit -m \"test: verify\"", "  ```", "",
+  );
+  assert.deepEqual(dropVerificationTask(plan, config), {
+    markdown: tasksBefore, dropped: { number: 3, title: "Verify Phase 1-3 still pass" },
+  });
+});
+
+test("a dropped verification task with manual steps keeps the sections after it", () => {
+  const after = lines("---", "", "## Self-Review", "", "- Spec coverage: done", "");
+  const plan = tasksBefore + lines(
+    "### Task 3: Verify all phases", "", "- Modify: None", "", "Run: `" + SUITE + "`", "",
+    "- [ ] **Step 2: Manual verification**", "- Visit `/complaints`, click Resolve", "",
+  ) + after;
+  const result = dropVerificationTask(plan, config);
+  assert.equal(result.markdown, tasksBefore + after);
+  assert.equal(result.dropped?.number, 3);
+});
+
+test("keeps a last task with test code, a file change, or another command", () => {
+  for (const body of [
+    lines("```python", "def test_unknown_id_is_404():", "    assert True", "```"),
+    lines("- Modify: `templates/complaints.html`", "", "Run: `" + SUITE + "`"),
+    lines("Run: `uv run --frozen python scripts/check.py`"),
+    lines("Check the page by hand."),
+  ]) {
+    const plan = tasksBefore + lines("### Task 3: Last", "", body, "");
+    assert.deepEqual(dropVerificationTask(plan, config), { markdown: plan }, body);
+  }
+});
+
+test("only the last task is a candidate, and a single task stays", () => {
+  const verify = lines("### Task 2: Verify", "", "Run: `" + SUITE + "`", "");
+  const middle = lines("# Plan", "", "### Task 1: Model", "", "- Modify: `models.py`", "", verify, "### Task 3: Route", "",
+    "- Modify: `app.py`", "");
+  assert.deepEqual(dropVerificationTask(middle, config), { markdown: middle });
+  const single = lines("# Plan", "", verify.replace("Task 2", "Task 1"));
+  assert.deepEqual(dropVerificationTask(single, config), { markdown: single });
 });

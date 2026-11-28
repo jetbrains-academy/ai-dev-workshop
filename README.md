@@ -86,14 +86,14 @@ Skip the questions; the Phase 4 acceptance in the roadmap has the decisions. Sav
 After approving the design, send the planning prompt.
 
 ```
-/skill:writing-plans The Phase 4 design looks good. Proceed with planning in at most three numbered tasks. Use the attached FastAPI guidance and put runnable tests in the task that owns each behavior. Check the assigned-ID POST's 303 and Location with follow_redirects=False, pair it with an unknown-ID 404 test, and isolate shared state. Check the parsed form for the assigned ID, then verify the same card shows Closed and its form is gone. Reread the saved plan and complete the Superpowers self-review before asking for approval.
+/skill:writing-plans The Phase 4 design looks good. Proceed with planning, and write its tests with the attached FastAPI guidance.
 ```
 
-Skim the saved plan for task count and runnable tests before approving it. If
-the plan needs changes, send this repair prompt.
+Skim the saved plan before approving it, especially for a route test that posts
+without `follow_redirects=False`. If the plan needs changes, send this repair prompt.
 
 ```
-/skill:writing-plans Reread the saved Phase 4 plan against the roadmap and attached FastAPI guidance. Revise it to at most three numbered tasks, with runnable tests in the task that owns each behavior. Edit only the plan and stop for approval.
+Reread the saved Phase 4 plan against the roadmap. Put each behavior's tests in the task that implements it. Edit only the plan and stop for approval.
 ```
 
 When the plan is ready, approve it to start native execution.
