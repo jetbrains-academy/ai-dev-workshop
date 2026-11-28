@@ -233,7 +233,7 @@ function enclosingTest({ lines, firstLine }: PythonSnippet, line: number): strin
     .findLast(Boolean);
 }
 
-export const FIX_FIRST = "Fix these in the plan with `save_plan` and reread it before asking for approval:";
+export const FIX_FIRST = "Fix these in the plan with `save_plan` before asking for approval:";
 
 function testSyntaxErrors(cwd: string, python: string | undefined, snippets: PythonSnippet[]): { line: number; firstLine: number; message: string }[] {
   if (!python) return [];
@@ -325,7 +325,7 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
       corrected.push(plan);
       serverStarts += frozen.serverStarts;
     }
-    // Warnings lead: Mellum follows the first imperative in a result, which is otherwise "reread, then ask for approval".
+    // Warnings lead: Mellum follows the first imperative in a result, which is otherwise "stop for approval".
     const lead = warnings.length ? [{ type: "text" as const, text: [FIX_FIRST, ...warnings].join("\n") }] : [];
     if (!corrected.length) return lead.length ? { content: [...lead, ...event.content] } : undefined;
     let text = `Applied the project's test and Python commands in ${corrected.join(", ")}.` +

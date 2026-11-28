@@ -186,7 +186,7 @@ test("a saved plan stays editable for self-review while implementation remains l
     assert.equal(refused?.block, true);
     assert.equal(refused.terminate, undefined);
     assert.match(refused.reason, /docs\/superpowers\/plans\/phase-4\.md/);
-    assert.match(refused.reason, /self-review/);
+    assert.match(refused.reason, /stop for approval/);
   }
   assert.equal((await call("edit", { ...editModel, path: "docs/superpowers/plans/phase-4.md" }))?.block, true);
   assert.equal((await call("save_plan", { path: "docs/superpowers/plans/phase-4.md" }))?.block, undefined);
@@ -289,7 +289,7 @@ test("a missing or unreadable planning skill warns with its path and allows plan
 
 const APPROVAL = "The plan looks good. Proceed with native execution.";
 
-test("save_plan runs existing plan checks and directs Pi to reread the saved plan", async (context) => {
+test("save_plan runs existing plan checks and asks Pi to stop for approval", async (context) => {
   const { cwd, errors, say, start, run } = await setupAll(context);
   await say(planning);
   await start(planning);
@@ -298,7 +298,8 @@ test("save_plan runs existing plan checks and directs Pi to reread the saved pla
     "~~~python", "def test_placeholder():", "    pass", "~~~", "",
     "~~~python", "def test_broken():", "    assert (", "~~~", "", "### 2. Board", ""].join("\n");
   const saved = texts(await run("save_plan", { path: plan, content })).join("\n");
-  assert.match(saved, /read.*docs\/superpowers\/plans\/workshop\.md.*next/i);
+  assert.match(saved, /Saved plan to docs\/superpowers\/plans\/workshop\.md\. .*stop for approval/);
+  assert.doesNotMatch(saved, /reread|`read`/i);
   assert.match(saved, /^Fix these in the plan with `save_plan`/);
   assert.match(saved, /`test_placeholder` in docs\/superpowers\/plans\/workshop\.md:\d+ contains only/);
   assert.match(saved, /`test_broken` in docs\/superpowers\/plans\/workshop\.md:\d+ does not parse/);
@@ -311,7 +312,7 @@ test("save_plan runs existing plan checks and directs Pi to reread the saved pla
   assert.deepEqual(errors, []);
 });
 
-test("writing-plans directs saved-file self-review on skill load and reread", async (context) => {
+test("writing-plans saves with save_plan and stops for approval on skill load and reread", async (context) => {
   const { cwd, errors, say, start, runner } = await setup(context);
   const prompt = "/skill:writing-plans " + planning;
   await say(prompt);
@@ -330,7 +331,8 @@ test("writing-plans directs saved-file self-review on skill load and reread", as
   });
   for (const text of [loaded, reread?.content[0].text]) {
     assert.match(text, /save_plan/);
-    assert.match(text, /read.*saved plan.*next action/i);
+    assert.match(text, /stop for approval/);
+    assert.doesNotMatch(text, /next action/);
     assert.match(text, /## Self-Review/);
     assert.match(text, /Spec coverage/);
     assert.doesNotMatch(text, /Which execution approach would you prefer/);
@@ -375,7 +377,7 @@ test("a repair prompt that leaves the saved plan unchanged keeps it approvable",
 });
 
 const stubPlan = "# Plan\n\n### Task 1: Route\n\n```python\ndef test_route():\n    pass\n```\n";
-const repairPrompt = "Reread the saved Phase 4 plan against the roadmap. Edit only the plan and stop for approval.";
+const repairPrompt = "In the saved Phase 4 plan, move the board text test to the template task. Save it and stop for approval.";
 const settle = (runner, outcome = "completed") => runner.emitBoundary({ type: "agent_before_settle", outcome },
   async () => ({ contextEntries: [], contextMessages: [], llmMessages: [], pendingMessages: [], canContinue: true }));
 const commit = (session, entries) => {
@@ -384,7 +386,7 @@ const commit = (session, entries) => {
   }
 };
 
-test("a repair prompt gets the saved plan's check results instead of a second guidance note", async (context) => {
+test("a repair prompt gets no second guidance note", async (context) => {
   const { cwd, errors, say, start } = await setup(context);
   await say(planning);
   const first = await start(planning);
@@ -392,14 +394,24 @@ test("a repair prompt gets the saved plan's check results instead of a second gu
   const plan = "docs/superpowers/plans/2026-11-27-p.md";
   await writeFile(path.join(cwd, plan), stubPlan);
   await say(repairPrompt);
-  const repair = await start(repairPrompt);
-  const text = (repair?.messages ?? []).map((m) => m.content).join("\n");
-  assert.doesNotMatch(text, /Planning skill|project guidance|Today is/);
-  assert.match(text, /^Plan check for docs\/superpowers\/plans\/2026-11-27-p\.md\. Fix these in the plan/);
-  assert.match(text, /`test_route` in docs\/superpowers\/plans\/2026-11-27-p\.md:\d+ contains only `pass`/);
-  await writeFile(path.join(cwd, plan), twoTasks);
-  await say(repairPrompt);
   assert.equal((await start(repairPrompt))?.messages?.length ?? 0, 0);
+  assert.deepEqual(errors, []);
+});
+
+test("skills from earlier stages keep their adapted text in later requests", async (context) => {
+  const { errors, say, start, runner } = await setup(context);
+  const file = brainstormingSkill.filePath;
+  const upstream = await readFile(file, "utf8");
+  const block = `<skill name="brainstorming" location="${file}">\n${upstream}\n</skill>\n\n${brainstorm}`;
+  const messages = [{ role: "user", content: [{ type: "text", text: block }], timestamp: Date.now() }];
+  await say("/skill:brainstorming " + brainstorm);
+  await start("/skill:brainstorming " + brainstorm);
+  const design = (await runner.emitContext(messages))[0].content[0].text;
+  await say(planning);
+  await start(planning);
+  const later = (await runner.emitContext(messages))[0].content[0].text;
+  assert.equal(later, design);
+  assert.ok(later.length < block.length / 2, `${later.length} of ${block.length}`);
   assert.deepEqual(errors, []);
 });
 

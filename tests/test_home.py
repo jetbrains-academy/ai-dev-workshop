@@ -1,9 +1,5 @@
 from html.parser import HTMLParser
 
-from starlette.testclient import TestClient
-
-from app import app
-
 
 TAGLINE = "Come in. Sit down. Tell us about your human."
 
@@ -39,8 +35,8 @@ class NavigationParser(HTMLParser):
             self._link_text.append(data)
 
 
-def test_home_page():
-    response = TestClient(app).get("/")
+def test_home_page(client):
+    response = client.get("/")
 
     assert response.status_code == 200
     assert response.headers["content-type"].split(";")[0] == "text/html"
@@ -55,8 +51,8 @@ def test_home_page():
     assert ("Complaints", "/complaints") in navigation.links
 
 
-def test_home_with_query_string():
-    response = TestClient(app).get("/?source=course")
+def test_home_with_query_string(client):
+    response = client.get("/?source=course")
 
     assert response.status_code == 200
     assert TAGLINE in response.text

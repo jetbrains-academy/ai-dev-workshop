@@ -10,7 +10,7 @@ const sdk = await import(pathToFileURL(path.join(process.env.PI_PACKAGE_DIR, "di
 const settingsPath = new URL("../../.pi/settings.json", import.meta.url);
 const settings = JSON.parse(await readFile(settingsPath, "utf8"));
 
-const FIX_FIRST = "Fix these in the plan with `save_plan` and reread it before asking for approval:";
+const FIX_FIRST = "Fix these in the plan with `save_plan` before asking for approval:";
 
 test("Pi saves frozen pytest commands before returning a plan write or edit", async (context) => {
   const cwd = await mkdtemp(path.join(tmpdir(), "pi-plan-commands-"));
@@ -85,7 +85,7 @@ test("Pi warns with the plan line for a pass-only test and leaves the draft inta
     type: "tool_result", toolCallId: "write", toolName: "write", input, ...result, isError: false,
   });
 
-  // The warning leads the result, ahead of the tool's own "reread, then ask for approval" text.
+  // The warning leads the result, ahead of the tool's own "stop for approval" text.
   assert.deepEqual(response?.content, [
     { type: "text", text: `${FIX_FIRST}\nWarning: \`test_route\` in ${plan}:6 contains only \`pass\`. Replace it with a complete test.` },
     ...result.content,

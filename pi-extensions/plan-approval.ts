@@ -12,8 +12,8 @@ const TOOLS_BEFORE_DRAFTING = "tools-before-design";
 const SAVE_DESIGN = "save_design";
 const SAVE_PLAN = "save_plan";
 const READ_TOOLS = new Set(["read", "ls", "find", "grep"]);
-const planReadback = (path?: string) => `Use \`read\` on ${path ? `\`${path}\`` : "the saved plan"} as your next action. ` +
-  "Complete the writing-plans self-review against the approved design and attached project guidance before asking for approval.";
+// Mellum never revised a plan after rereading it (0 of 11 forced rereads, 7-23 s each), so a saved plan ends the turn.
+const STOP_FOR_APPROVAL = "Give the plan path and a short summary, then stop for approval.";
 // The phase comes from the prompt that started the stage, through the patterns in .pi/project.json.
 const label = (phase: number | undefined) => (phase === undefined ? "Plan" : `Phase ${phase}`);
 const locked = (phase: number | undefined) => `${label(phase)} approval guard: code edits and commands stay locked ` +
@@ -22,9 +22,9 @@ const designOnly = (phase: number | undefined) => locked(phase) +
   " Use `save_design` to save the draft under docs/superpowers/specs/, reply with a short summary, and end your turn for approval.";
 const planOnly = (phase: number | undefined, skill: string | undefined) => locked(phase) +
   " This turn only writes the plan. Read the writing-plans skill" + (skill ? ` at ${skill}` : "") +
-  ", then use `save_plan` to save it under docs/superpowers/plans/. " + planReadback();
+  ", then use `save_plan` to save it under docs/superpowers/plans/. " + STOP_FOR_APPROVAL;
 const planSaved = (phase: number | undefined, path: string) => locked(phase) +
-  ` Your plan is saved at ${path}. Use \`save_plan\` for revisions. ` + planReadback(path);
+  ` Your plan is saved at ${path}. Use \`save_plan\` for revisions. ` + STOP_FOR_APPROVAL;
 
 // Mellum read a bare refusal as "an odd message from a previous interaction" and ignored it,
 // so every refusal opens by naming the call it answers.
@@ -277,8 +277,7 @@ function adaptWritingPlans(text: string): string {
   return [
     guidance.trimEnd(),
     "## Execution Handoff",
-    "Use `save_plan` to save the draft. " + planReadback(),
-    "Use `save_plan` for corrections and reread the saved revision. Give the plan path and a short self-review summary, then stop for approval.",
+    "Use `save_plan` to save the plan, and again for any correction. " + STOP_FOR_APPROVAL,
   ].join("\n\n");
 }
 
@@ -366,7 +365,7 @@ export default async function planApproval(pi: ExtensionAPI) {
         }
         const saved = relative(realpathSync(ctx.cwd), target);
         const text = stage === "design" ? "Saved design draft to " + saved + ". Summarize it and stop for approval."
-          : "Saved plan to " + saved + ". " + planReadback(saved);
+          : "Saved plan to " + saved + ". " + STOP_FOR_APPROVAL;
         return { content: [{ type: "text", text }], details: undefined };
       },
     });
@@ -378,6 +377,13 @@ export default async function planApproval(pi: ExtensionAPI) {
   let executingPlans: string | undefined;
   let approvalNote = false;
   const scriptsDir = () => (executingPlans ? join(dirname(executingPlans), "scripts") : "executing-plans/scripts");
+  // Every skill read so far, adapted the same way in every later request: in planning the brainstorming skill
+  // went back to its 15,530-character upstream text (2026-11-27), which also changed the cached prompt prefix.
+  const knownSkills = () => [
+    brainstorming && { name: "brainstorming", file: brainstorming, adapt: adaptBrainstorming },
+    writingPlans && { name: "writing-plans", file: writingPlans, adapt: adaptWritingPlans },
+    executingPlans && { name: "executing-plans", file: executingPlans, adapt: adaptExecutingPlans },
+  ].filter((skill) => !!skill);
   const stageSkill = (state: PlanState | undefined) => {
     if (state?.status === "design" && brainstorming) return { name: "brainstorming", file: brainstorming, adapt: adaptBrainstorming };
     if (state?.status === "planning" && writingPlans) return { name: "writing-plans", file: writingPlans, adapt: adaptWritingPlans };
@@ -418,12 +424,8 @@ export default async function planApproval(pi: ExtensionAPI) {
     datedStage = entry.id;
     // A repair prompt continues planning with a plan already saved. In both 2026-11-27 repair turns the re-attached
     // date and guidance note came last, and Mellum answered it ("update the plan to incorporate FastAPI testing
-    // guidance") instead of the request. Give it only what the plan check finds, or nothing.
-    const repairing = freshPlan(ctx.cwd, state);
-    if (repairing) {
-      const findings = planFindings(ctx.cwd, repairing);
-      return findings ? { message: { customType: PLAN_CHECK, content: findings, display: true } } : undefined;
-    }
+    // guidance") instead of the request, so a repair gets no note. Plan-check findings come once, at settle.
+    if (freshPlan(ctx.cwd, state)) return;
     let content = dateNote(today(), state.status);
     const skill = state.status === "planning" ? projectConfig(ctx.cwd).planningSkill : undefined;
     if (skill) {
@@ -526,8 +528,9 @@ export default async function planApproval(pi: ExtensionAPI) {
   pi.on("context", (event, ctx) => {
     const state = stateFor(ctx);
     let messages = state?.status === "approved" && state.approvedAt ? stubPlanningResults(event.messages, state.approvedAt) : undefined;
-    const skill = stageSkill(state);
-    if (skill) messages = projectSkill(messages ?? event.messages, skill.name, skill.file, skill.adapt) ?? messages;
+    for (const skill of knownSkills()) {
+      messages = projectSkill(messages ?? event.messages, skill.name, skill.file, skill.adapt) ?? messages;
+    }
     return messages ? { messages } : undefined;
   });
 

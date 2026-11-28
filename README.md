@@ -89,11 +89,12 @@ After approving the design, send the planning prompt.
 /skill:writing-plans The Phase 4 design looks good. Proceed with planning, and write its tests with the attached FastAPI guidance.
 ```
 
-Skim the saved plan before approving it, especially for a route test that posts
-without `follow_redirects=False`. If the plan needs changes, send this repair prompt.
+Skim the saved plan before approving it, especially for a test in a route task
+that checks page text the template task has not added yet. If the plan needs a
+change, name one change in this repair prompt.
 
 ```
-Reread the saved Phase 4 plan against the roadmap. Put each behavior's tests in the task that implements it. Edit only the plan and stop for approval.
+In the saved Phase 4 plan, <one concrete change>. Save it and stop for approval.
 ```
 
 When the plan is ready, approve it to start native execution.

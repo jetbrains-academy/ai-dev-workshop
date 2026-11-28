@@ -16,7 +16,11 @@ No extension carries text written for this project, its stack or one phase. All 
   take the phase from these prompts, so their messages say "Phase 4" for Phase 4 and "Phase 5" for Phase 5.
   `tests/pi/project-config.test.mjs` checks that the README's Phase 4 prompts match.
 - `planningSkill`: a project-relative skill file attached to the planning note at the start of the turn.
-  The note shows the configured path in a warning if the file is missing or unreadable.
+  The note shows the configured path in a warning if the file is missing or unreadable. The workshop's
+  `fastapi-testing` skill was cut on 2026-11-27 to the facts about `tests/conftest.py`, which gives every test a
+  `client` that does not follow redirects, a `form_targets(html)` helper and an in-memory data reset. Mellum
+  never wrote the fixture or the form parser that the longer guidance described (0 of 11 plans), and a POST test
+  that followed the redirect cost one execution about 100 seconds.
 - `python`, `pytest`, `testSuite`, `implementation`: the commands the extensions run or write into plans, and the
   files whose change during the finish check stops it.
 - `servers` and `inProcessHint`: what counts as starting a server, and what to do instead.
@@ -160,8 +164,8 @@ server start, as the live-server guard recognises it, becomes
 it ("Run: `pytest -q`; never `python app.py`"). Single-word code spans in prose and
 Python code blocks stay as written.
 The save result warns about a `pass`-only test or a fenced Python test snippet that fails to parse. Each warning
-names the test and its plan line, and the warnings come first, under "Fix these in the plan with `save_plan` and
-reread it before asking for approval". In a 2026-11-27 headless run the older warning came after the reread
+names the test and its plan line, and the warnings come first, under "Fix these in the plan with `save_plan`
+before asking for approval". In a 2026-11-27 headless run the older warning came after a reread
 instruction and gave a snippet line; `read` shows no line numbers, so Mellum looked in the wrong place, decided the
 warning was "harmless", and asked for approval. The warnings never block a save.
 
@@ -198,18 +202,24 @@ when you ask Pi to brainstorm or plan a phase, as the config's `design` and `pla
 the workshop's draft-before-approval sequence on skill load and reread. During
 planning, Pi gets read-only tools and `save_plan`, which writes Markdown under
 `docs/superpowers/plans/` and runs the existing plan checks. The adapted
-`writing-plans` skill asks Pi to reread the saved plan and complete its
-self-review before asking for approval. The README's repair prompt also matches
+`writing-plans` skill and the save result ask Pi to give the plan path and a
+short summary, then stop for approval. Until 2026-11-27 they asked Pi to reread
+the saved plan first; none of 11 rereads revised a plan, and each cost 7 to 23
+seconds. Every skill Pi has loaded keeps its adapted text in later stages'
+requests: before, the brainstorming skill went back to its 15,530-character
+upstream text during planning and execution. The README's repair prompt also matches
 the planning prompt; it keeps the plans recorded when planning began, so a plan
 saved earlier stays approvable when the repair saves nothing new. A repair turn no
 longer gets the date and FastAPI guidance note again: in both 2026-11-27 repair
-turns that note came last, and Mellum answered it instead of the request. It gets
-the saved plan's check results (`pass`-only tests and test snippets that do not
-parse), or nothing. When planning ends with such findings still in the saved plan,
+turns that note came last, and Mellum answered it instead of the request. The
+README's repair prompt is a fill-in that names one change, since the canned
+"reread against the roadmap" prompt left the plan unchanged or added broken
+assertions in 4 of 4 runs. When planning ends with check findings (`pass`-only
+tests and test snippets that do not parse) still in the saved plan,
 the `agent_before_settle` hook has Pi make one more request with the findings as
 its last message. That happens once per planning stage; after that the presenter
 gets the findings as a notification. To enable implementation, wait for Pi
-to save and review a new or revised plan and stop,
+to save a new or revised plan and stop,
 then send the approval prompt from the [README](README.md#phase-4-pi--mellum--superpowers).
 The guard records approval in the Pi session branch and restores the prior tool set.
 
