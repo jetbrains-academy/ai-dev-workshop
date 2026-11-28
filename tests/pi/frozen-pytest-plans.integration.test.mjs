@@ -152,3 +152,79 @@ test("Pi warns with plan lines for invalid Python test snippets and leaves the d
   assert.ok(warnings[1].startsWith(`Warning: \`test_board\` in ${plan}:10 does not parse: `), warnings[1]);
   assert.equal(await readFile(path.join(cwd, plan), "utf8"), draft);
 });
+
+test("a saved plan loses an assertion that a text is nowhere on a page the plan puts it on", async (context) => {
+  const cwd = await mkdtemp(path.join(tmpdir(), "pi-plan-absent-"));
+  context.after(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(path.join(cwd, "docs/superpowers/plans"), { recursive: true });
+  await mkdir(path.join(cwd, ".pi"), { recursive: true });
+  await writeFile(path.join(cwd, ".pi/project.json"), await readFile(new URL("../../.pi/project.json", import.meta.url)));
+  const extensions = settings.extensions.map((entry) => fileURLToPath(new URL(entry, settingsPath)));
+  const loaded = await sdk.discoverAndLoadExtensions(extensions, cwd, cwd);
+  assert.deepEqual(loaded.errors, []);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, cwd, sdk.SessionManager.inMemory(cwd), undefined);
+  const plan = "docs/superpowers/plans/items.md";
+  // 2026-11-28: 7 of 16 full runs lost 54 to 414 seconds to a plan test like the first one. The list page showed the
+  // button for every other item, so the test could not pass; one run never got past it. A warning was tried first,
+  // in 4 plan-only runs: it fired in 3, each re-save took about a minute, and no rewrite was better (one kept the
+  // same assertion as `.count(...) == 0`, one emptied the test).
+  const lines = [
+    "# Items", "",
+    "Archived items show \"Deleted\" nowhere; that word is for another page.", "",
+    "```python",
+    "def test_archived_item_loses_its_button(client):",
+    "    client.post(\"/items/2/archive\")",
+    "    page = client.get(\"/items\")",
+    "    assert f\"Archive item\" not in page.text",                      // removed: the markup below shows it
+    "    assert 'action=\"/items/2/archive\"' not in page.text",          // stays: about one item
+    "    assert \"Deleted\" not in page.text",                            // stays: only prose mentions it
+    "", "",
+    "def test_one_form_goes(client):",
+    "    assert 'action=\"/items/2/mute\"' in client.get(\"/items\").text",
+    "    client.post(\"/items/2/mute\")",
+    "    assert 'action=\"/items/2/mute\"' not in client.get(\"/items\").text",  // stays: present before, for one item
+    "", "",
+    "def test_muted(client):",
+    "    client.post(\"/items/2/mute\")",
+    "    assert \"Mute thread\" not in client.get(\"/items\").text",    // removed: the roadmap names it, the plan does not
+    "", "",
+    "def test_nothing_else(client):",
+    "    assert \"Archive item\" not in client.get(\"/items\").text",    // stays with a warning: the only statement
+    "```", "",
+    "```html",
+    "<button type=\"submit\">Archive item</button>",
+    "```", "",
+    "```bash", "git commit -m \"Archive item route\"", "```", "",
+  ];
+  const draft = lines.join("\n");
+  const kept = lines.filter((line) => !line.includes("f\"Archive item\" not in") && !line.includes("\"Mute thread\" not in"));
+  // 2026-11-28: 1 of 25 full runs lost two assertions like the one in `test_one_form_goes`. An assertion that the
+  // same text is present elsewhere in the plan used to count as the plan putting it on the page; it only says one
+  // item shows it, and the removed assertions would have passed.
+  // 2026-11-28: 2 of 44 saved plans asserted the button label absent without ever putting it on the page.
+  await mkdir(path.join(cwd, "specs"), { recursive: true });
+  await writeFile(path.join(cwd, "specs/roadmap.md"), "## Phase 9\n\nEach card has a **Mute thread** button.\n");
+  const input = { path: plan, content: draft };
+  const result = await sdk.createWriteTool(cwd).execute("write", input, undefined, undefined);
+  const response = await runner.emitToolResult({
+    type: "tool_result", toolCallId: "write", toolName: "write", input, ...result, isError: false,
+  });
+  assert.ok(response, "return the changes with the successful write");
+  assert.equal(await readFile(path.join(cwd, plan), "utf8"), kept.join("\n"));
+  const said = response.content.at(-1).text;
+  assert.ok(said.includes(`Removed \`assert f"Archive item" not in page.text\` from \`test_archived_item_loses_its_button\` ` +
+    `in ${plan}: the plan puts "Archive item" on that page, so the assertion fails while another item still shows it.`), said);
+  assert.ok(said.includes("Removed `assert \"Mute thread\" not in client.get(\"/items\").text` from `test_muted` " +
+    `in ${plan}: specs/roadmap.md puts "Mute thread" on the page, so the assertion fails while another item still shows it.`), said);
+  assert.doesNotMatch(said, /Deleted|items\/2\/archive"' not in|items\/2\/mute/);
+  // Removing a test's only statement would leave it unparseable: that one gets a warning instead.
+  const [header, ...warnings] = response.content[0].text.split("\n");
+  assert.equal(header, FIX_FIRST);
+  const at = kept.indexOf("    assert \"Archive item\" not in client.get(\"/items\").text") + 1;
+  const shown = kept.indexOf("<button type=\"submit\">Archive item</button>") + 1;
+  assert.deepEqual(warnings, [
+    `Warning: \`test_nothing_else\` in ${plan}:${at} asserts "Archive item" is nowhere in the response, ` +
+      `but ${plan}:${shown} puts it there. It fails while any other item still shows "Archive item". Replace it with a ` +
+      "count: take `.count(\"Archive item\")` before the change and compare it after.",
+  ]);
+});

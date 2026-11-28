@@ -190,6 +190,22 @@ names the test and its plan line, and the warnings come first, under "Fix these 
 before asking for approval". In a 2026-11-27 headless run the older warning came after a reread
 instruction and gave a snippet line; `read` shows no line numbers, so Mellum looked in the wrong place, decided the
 warning was "harmless", and asked for approval. The warnings never block a save.
+A saved plan also loses an assertion that a string is not in a response (`assert "Text" not in page.text`) when
+the same plan's markup puts that string there, or when the roadmap names it as a whole phrase of six characters
+or more. On a page that lists
+several items the others still show the string, so the test cannot pass. In 7 of 16 full runs on 2026-11-28 such a
+test cost 54 to 414 seconds, and one run never got past it. The save result names each removed line and its test.
+Replayed over the 44 plans saved that week, this changes 12, among them all five of those runs whose test was in
+the saved plan, and every changed snippet still parses. A warning was tried first, in 4 plan-only runs: it fired
+in 3, each re-save took about a minute, and no rewrite was better (one kept the same assertion as
+`.count(...) == 0`, one emptied the test). The warning remains for an assertion that is its test's only
+statement.
+In 25 full runs on 2026-11-28 the save removed 14 such lines in 12 runs and passed over none. Two runs still lost
+30 seconds or more to such a test, against 7 of 16 before; in both Mellum wrote the line again during execution,
+and one of them spent its last 17 minutes on it. Three of the 14 lines would have passed. Two named one item's
+form and went because the plan also asserted that form present; such an assertion no longer counts, since it
+says only that one item shows the text. The third rendered the template with a single item, which the check
+cannot tell from a page.
 
 A last task that only reruns the tests, and maybe commits, is removed from the saved plan: no non-shell code
 block, no `Create:` or `Modify:` file, and every command is the project's `pytest` or `git`. The result says
@@ -236,8 +252,8 @@ longer gets the date and FastAPI guidance note again: in both 2026-11-27 repair
 turns that note came last, and Mellum answered it instead of the request. The
 README's repair prompt is a fill-in that names one change, since the canned
 "reread against the roadmap" prompt left the plan unchanged or added broken
-assertions in 4 of 4 runs. When planning ends with check findings (`pass`-only
-tests and test snippets that do not parse) still in the saved plan,
+assertions in 4 of 4 runs. When planning ends with check findings (the
+warnings above) still in the saved plan,
 the `agent_before_settle` hook has Pi make one more request with the findings as
 its last message. That happens once per planning stage; after that the presenter
 gets the findings as a notification. To enable implementation, wait for Pi

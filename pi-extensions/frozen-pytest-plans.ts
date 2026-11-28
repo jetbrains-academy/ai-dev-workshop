@@ -160,9 +160,10 @@ export function dropVerificationTask(markdown: string, config: ProjectConfig): {
   return { markdown: kept.join("\n"), dropped: { number: last.number, title: last.title } };
 }
 
-function pythonSnippets(markdown: string): PythonSnippet[] {
+// Every fenced block of the plan, with whether its language is Python.
+function fencedBlocks(markdown: string): (PythonSnippet & { python: boolean })[] {
   const lines = markdown.split(/\r?\n/);
-  const snippets: PythonSnippet[] = [];
+  const snippets: (PythonSnippet & { python: boolean })[] = [];
   let fence = "";
   let python = false;
   let start = 0;
@@ -175,12 +176,83 @@ function pythonSnippets(markdown: string): PythonSnippet[] {
       continue;
     }
     if (fence && marker && marker[1].startsWith(fence) && !marker[2]) {
-      if (python) snippets.push({ lines: lines.slice(start, index), firstLine: start + 1 });
+      snippets.push({ lines: lines.slice(start, index), firstLine: start + 1, python });
       fence = "";
     }
   }
-  if (fence && python) snippets.push({ lines: lines.slice(start), firstLine: start + 1 });
+  if (fence) snippets.push({ lines: lines.slice(start), firstLine: start + 1, python });
   return snippets;
+}
+
+// A test line that asserts a string literal is not in something: `assert "Text" not in page.text`.
+const ABSENT = /^\s*assert\s+[A-Za-z]{0,2}(["'])(.+?)\1\s+not\s+in\s+\S/;
+
+type Block = PythonSnippet & { python: boolean };
+/** `shown` is the plan line that puts the text on a page; without it the roadmap is what names the text. */
+interface AbsentAssertion { name?: string; line: number; source: string; text: string; shown?: number; removable: boolean }
+
+const indentOf = (line: string) => line.length - line.trimStart().length;
+
+// Whether a statement can be deleted and leave its block with another statement: a one-line assertion with a
+// sibling at the same depth that is not itself going.
+function hasSibling(lines: string[], index: number, going: Set<number>): boolean {
+  const line = lines[index];
+  if ((line.match(/[([{]/g) ?? []).length !== (line.match(/[)\]}]/g) ?? []).length || /\\\s*$/.test(line)) return false;
+  const code = (at: number) => lines[at].trim() !== "" && !lines[at].trim().startsWith("#");
+  const indent = indentOf(line);
+  let parent = index - 1;
+  while (parent >= 0 && !(code(parent) && indentOf(lines[parent]) < indent)) parent--;
+  if (parent < 0) return false;
+  for (let at = parent + 1; at < lines.length; at++) {
+    if (!code(at)) continue;
+    if (indentOf(lines[at]) < indent) break;
+    if (indentOf(lines[at]) === indent && !going.has(at)) return true;
+  }
+  return false;
+}
+
+// Whether a document names a text as a whole phrase. Short words match by accident ("Test"), so they do not count.
+function namedIn(document: string, text: string): boolean {
+  if (text.trim().length < 6) return false;
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`).test(document);
+}
+
+// Tests that assert a text is nowhere in a response while the plan's own markup puts that text there. On a page
+// that lists several items the text is still shown for the others, so the test cannot pass. Each finding names
+// where the plan puts the text. A plan can also leave the text out of its own markup; then the roadmap's naming
+// it counts. Another assertion that the text is present does not count: it says one item shows it.
+function absentButShown(blocks: Block[], roadmap = ""): AbsentAssertion[] {
+  const found: AbsentAssertion[] = [];
+  for (const snippet of blocks.filter((block) => block.python)) {
+    const here: { index: number; text: string; shown?: number }[] = [];
+    for (const [index, line] of snippet.lines.entries()) {
+      const text = line.match(ABSENT)?.[2];
+      if (!text || text.trim().length < 3) continue;
+      let shown: number | undefined;
+      for (const block of blocks.filter((other) => !other.python)) {
+        const at = block.lines.findIndex((other) => other.includes(text) && other.includes("<"));
+        if (at >= 0 && (shown === undefined || block.firstLine + at < shown)) shown = block.firstLine + at;
+      }
+      if (shown !== undefined || namedIn(roadmap, text)) here.push({ index, text, shown });
+    }
+    const going = new Set(here.map(({ index }) => index));
+    for (const { index, text, shown } of here) {
+      const line = snippet.firstLine + index;
+      found.push({ name: enclosingTest(snippet, line), line, source: snippet.lines[index].trim(), text, shown,
+        removable: hasSibling(snippet.lines, index, going) });
+    }
+  }
+  return found;
+}
+
+// Take those assertions out of the plan where the test keeps another statement. 2026-11-28: a warning was tried
+// first in 4 plan-only runs; it fired in 3, each re-save took about a minute, and no rewrite was better.
+export function dropAbsentAssertions(markdown: string, roadmap = ""): { markdown: string; removed: AbsentAssertion[] } {
+  const removed = absentButShown(fencedBlocks(markdown), roadmap).filter((finding) => finding.removable);
+  if (!removed.length) return { markdown, removed };
+  const gone = new Set(removed.map((finding) => finding.line));
+  return { markdown: markdown.split(/\r?\n/).filter((_, index) => !gone.has(index + 1)).join("\n"), removed };
 }
 
 function passOnlyTests({ lines, firstLine }: PythonSnippet): { name: string; line: number }[] {
@@ -252,10 +324,20 @@ function testSyntaxErrors(cwd: string, python: string | undefined, snippets: Pyt
   }
 }
 
-// Mechanical findings for a saved plan: `pass`-only tests and test snippets that do not parse, each named.
+function roadmapText(cwd: string, config: ProjectConfig): string {
+  try {
+    return config.roadmap ? readFileSync(join(cwd, config.roadmap), "utf8") : "";
+  } catch {
+    return "";
+  }
+}
+
+// Mechanical findings for a saved plan: `pass`-only tests, test snippets that do not parse, and tests that
+// assert a text is absent where the plan shows it, each named.
 // plan-approval.ts repeats them on a repair prompt and at the end of planning.
 export function planWarnings(cwd: string, config: ProjectConfig, plan: string, markdown: string): string[] {
-  const snippets = pythonSnippets(markdown);
+  const blocks = fencedBlocks(markdown);
+  const snippets = blocks.filter((block) => block.python);
   const warnings = snippets.flatMap(passOnlyTests).map(({ name, line }) =>
     `Warning: \`${name}\` in ${plan}:${line} contains only \`pass\`. Replace it with a complete test.`);
   for (const { line, firstLine, message } of testSyntaxErrors(cwd, config.python, snippets)) {
@@ -263,6 +345,11 @@ export function planWarnings(cwd: string, config: ProjectConfig, plan: string, m
     const name = snippet && enclosingTest(snippet, line);
     warnings.push(`Warning: ${name ? `\`${name}\`` : "A Python test snippet"} in ${plan}:${line} does not parse: ` +
       `${message}. Give it a complete body.`);
+  }
+  for (const { name, line, text, shown } of absentButShown(blocks, roadmapText(cwd, config))) {
+    warnings.push(`Warning: ${name ? `\`${name}\`` : "A test"} in ${plan}:${line} asserts "${text}" is nowhere in the ` +
+      `response, but ${shown === undefined ? config.roadmap : `${plan}:${shown}`} puts it there. It fails while any other item still shows "${text}". Replace it ` +
+      `with a count: take \`.count("${text}")\` before the change and compare it after.`);
   }
   return warnings;
 }
@@ -318,6 +405,13 @@ export default function frozenPytestPlans(pi: ExtensionAPI) {
       if (verified.dropped) {
         dropped.push(`Removed Task ${verified.dropped.number} ("${verified.dropped.title}") from ${plan}: it only reran ` +
           "the tests, and the finish step runs the test suite.");
+      }
+      const absent = dropAbsentAssertions(frozen.markdown, roadmapText(ctx.cwd, config));
+      frozen.markdown = absent.markdown;
+      for (const { name, source, text, shown } of absent.removed) {
+        dropped.push(`Removed \`${source}\` from ${name ? `\`${name}\`` : "a test"} in ${plan}: ` +
+          `${shown === undefined ? `${config.roadmap} puts "${text}" on the page` : `the plan puts "${text}" on that page`}, ` +
+          "so the assertion fails while another item still shows it.");
       }
       warnings.push(...planWarnings(ctx.cwd, config, plan, frozen.markdown));
       if (frozen.markdown === content) continue;
