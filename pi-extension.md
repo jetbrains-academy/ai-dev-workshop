@@ -35,33 +35,45 @@ An extension whose key is missing does nothing. Superpowers' own conventions (`d
 executing-plans scripts, `Task N` headings) stay built in. The Flask-to-FastAPI route rewrite was removed: it fixed
 a mistake in the model's code for one stack, which the config cannot express without encoding the answer.
 
-## Frozen for the demo (2026-11-26, second freeze)
+## Demo setup (freeze lifted 2026-11-27)
 
-The extensions are frozen as of commit `f71e606` (project config, no grader in the repo); the only later change is the
-roadmap's card bullet, which now names the button for each status. No more extension changes, `AGENTS.md` lines or
-headless batches are planned: over 51 graded runs about 1 in 4 broke the demo, each time for a different rare reason,
-and batches of 4 to 8 runs cannot show a fix working.
+The extensions were frozen on 2026-11-26 at commit `f71e606`, with one later change to the roadmap's card bullet.
+Over 51 graded runs about 1 in 4 had broken the demo, each time for a different rare reason, and batches of 4 to 8
+runs could not show a fix working. The last check then (4 runs, grader added only after each run) had a median
+execution of 163 s and scored 12/12 in 1 of 4. Evidence: `../ai-dev-workshop-mellum-evidence/config-n4/`; that
+grader, in `../grader/` there, tests the earlier Phase 4 with Resolve and Reopen and does not fit the current one.
 
-The last check (4 runs at `f71e606`, grader added only after each run): median execution 163 s, 1 CLEAN, 2 FLAWED,
-1 BREAK, 12/12 in 1 of 4. All three misses broke the card bullet (links instead of POST forms, lowercase status,
-swapped buttons), and Phase 4 was marked done in all four, because the finish check runs only the model's own tests.
-Evidence: `../ai-dev-workshop-mellum-evidence/config-n4/`; the grader is kept for scoring in `../grader/` there.
+Two things changed after that. Phase 4 was narrowed to resolving a complaint, with no Reopen. On 2026-11-27 work
+on the extensions resumed, to move behaviour out of prompt wording: the plan-save checks, faster planning, shared
+test fixtures, the finish check for uncommitted files, and the filled-in `task-done` command, each described
+below. No new freeze has been declared.
+
+Seven full headless runs on 2026-11-27, across four setups, all passed the suite and 11 of 11 checks that Pi never
+saw. Execution took 4 to 6.5 minutes in 4 of them and 13.5 to 18.5 minutes in the other 3; two of the slow ones
+had a `task-done` refusal that has since been removed. Seven runs cannot rank the setups by speed. Evidence:
+`../ai-dev-workshop-mellum-evidence/exec-speed-20261127/`.
 
 For the live demo:
 - Start Phase 4 from the repo's own Phase 3, which every trial used. Phase 4 on an attendee's own Phase 2 and 3 code
   is best-effort.
 - Read the saved plan aloud before approving it. If it has no `Task N` headings, send the planning prompt once more.
-- After execution, open the board and click Resolve and Reopen yourself. If something is wrong, send one plain review
-  note, such as "Resolve must be a POST form, not a link." The human review is the acceptance check.
-- Keep a stopwatch on the execution turn. Good runs take 2 to 8 minutes; past 8 minutes, say so and switch to the
-  recorded run.
+  For any other change, name one change in the README's repair prompt.
+- After execution, open the board and click **Resolve complaint** yourself: the card should show **Closed** and the
+  form should disappear. If something is wrong, send one plain review note, such as "Resolve must be a POST form,
+  not a link." The human review is the acceptance check.
+- If the finish prompt reports uncommitted implementation files, ask Pi to commit them and send the finish prompt
+  again. Two of the seven runs ended with route code uncommitted.
+- Keep a stopwatch on the execution turn. Past 8 minutes, say so and switch to the recorded run.
 - Rehearse twice interactively with these steps, record both, and keep the cleaner one as the fallback.
 
 Known and accepted:
 - plans with no `Task N` heading at all;
 - failed-edit loops, often from a backslash that Pi cannot write back into an edit's old text;
 - the done signal often ending the turn without a written report;
-- runs with no commits, or with design and plan files left uncommitted.
+- fewer commits than tasks (1 to 4 commits for 3 to 5 tasks; one run of seven had a commit per task), and design
+  and plan files left uncommitted;
+- a final review that starts over after a compaction: one run of seven spent 506 s on it, against 30 to 149 s in
+  the others.
 
 ## Superpowers skill over-triggering
 
