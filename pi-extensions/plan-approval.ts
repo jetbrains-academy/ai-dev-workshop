@@ -4,7 +4,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathS
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ContextEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { FIX_FIRST, planWarnings } from "./frozen-pytest-plans.ts";
-import { matchPrompt, projectConfig } from "./project-config.ts";
+import { matchPrompt, projectConfig, uncommittedImplementation } from "./project-config.ts";
 
 const PLANS = "docs/superpowers/plans";
 const ENTRY = "plan-approval";
@@ -72,6 +72,35 @@ export function planTasks(markdown: string): PlanTask[] {
   });
 }
 
+// Where Pi goes next: start the task, or continue and finish it when its task-start already ran. The note and
+// each recorded task's result both carry it, so the next command is always the last thing Pi was told.
+function nextTaskLine(plan: string, task: PlanTask, started: { brief: string; base: string } | undefined,
+  scripts: string, context: NoteContext): string {
+  return started
+    ? `Next: Continue Task ${task.number} from its brief ${started.brief} with base ${started.base}; ` +
+      "do not run task-start again for it." + (context.test ? " Finish it with " +
+        `\`${taskDoneCommand(scripts, plan, task.number, started.base, context.test)}\`.` : "")
+    : `Next: Task ${task.number}. Start it with \`${scripts}/task-start ${plan} ${task.number}\`.`;
+}
+
+// Files in the Superpowers package that a search named. Pi's find and grep skip git-ignored folders, and the
+// project's package is installed in one (.pi/git): on 2026-11-27, 26 searches for the task scripts or the
+// reviewer file in 3 of 7 runs came back empty, and the model went on to search the disk at 30 s a try.
+export function packageFiles(skills: string, pattern: string): string[] {
+  const wanted = pattern.replace(/^(?:\*\*\/|\.\/)+/, "");
+  if ((wanted.split("/").at(-1) ?? "").length < 3 || /[*?[\]{}]/.test(wanted)) return [];
+  try {
+    // A bare name such as `scripts` is in several skills; the one being executed comes first.
+    const mine = (entry: string) => (entry.startsWith("executing-plans/") ? 0 : 1);
+    return (readdirSync(skills, { recursive: true }) as string[])
+      .filter((entry) => entry === wanted || entry.endsWith(`/${wanted}`))
+      .sort((a, b) => mine(a) - mine(b) || a.localeCompare(b))
+      .slice(0, 3).map((entry) => join(skills, entry));
+  } catch {
+    return [];
+  }
+}
+
 // The audience should see Superpowers' executing-plans run the plan; this note only tells Pi where it is.
 // In the 2026-11-25 runs Pi either never opened the plan or lost its place after a compaction.
 export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress, scripts: string,
@@ -89,11 +118,7 @@ export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress
     `Recorded: ${done.length ? done.join(", ") : "none yet"}.`,
     !next
       ? `Next: the first task the plan lists. Start it with \`${scripts}/task-start ${plan} N\`, N being its number.`
-      : started
-        ? `Next: Continue Task ${next.number} from its brief ${started.brief} with base ${started.base}; ` +
-          "do not run task-start again for it." + (context.test ? " Finish it with " +
-            `\`${taskDoneCommand(scripts, plan, next.number, started.base, context.test)}\`.` : "")
-        : `Next: Task ${next.number}. Start it with \`${scripts}/task-start ${plan} ${next.number}\`.`,
+      : nextTaskLine(plan, next, started, scripts, context),
     // "Record it rather than redoing it" let runs record tasks they never worked; the brief check keeps
     // the shortcut for real finished work without inviting that.
     ...(commits.length ? [`Commits since approval: ${commits.join("; ")}. If a task's work is already committed, ` +
@@ -310,14 +335,48 @@ function projectSkill(messages: ContextMessage[], name: string, path: string,
   return changed ? out : undefined;
 }
 
-export function stubPlanningResults(messages: ContextMessage[], approvedAt: number): ContextMessage[] | undefined {
+// What the earlier stages left in the request, replaced by stubs once the plan is approved: long tool results,
+// the text of the skills those stages loaded, and the drafts passed to save_design and save_plan (the files hold
+// them). Each message keeps its place and the user's own words stay. `keepSkill` is the skill being executed.
+// `keepCall` names the tool whose last call stays whole: the approved design, which says what to build where a
+// task brief leaves a detail out.
+export function stubPlanningResults(messages: ContextMessage[], approvedAt: number, keepSkill?: string,
+  keepCall?: string): ContextMessage[] | undefined {
   let changed = false;
-  const out = messages.map((message): ContextMessage => {
-    if (message.role !== "toolResult" || typeof message.timestamp !== "number" || message.timestamp >= approvedAt) return message;
-    const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
-    if (text.length < 200) return message;
+  const early = (message: ContextMessage) => typeof message.timestamp === "number" && message.timestamp < approvedAt;
+  // The last call of this name before approval keeps its arguments: the design the plan was written from.
+  const kept = keepCall === undefined ? undefined : messages.findLast((message) => early(message) &&
+    message.role === "assistant" && message.content.some((part) => part.type === "toolCall" && part.name === keepCall));
+  const skillStub = (text: string) => {
+    const opening = text.match(/^<skill name="([^"]+)" location="[^"]*">\n/);
+    const end = text.indexOf("\n</skill>");
+    if (!opening || end < 0 || opening[1] === keepSkill || end - opening[0].length < 200) return text;
     changed = true;
-    return { ...message, content: [{ type: "text", text: "[planning-stage result omitted after the plan was approved]" }] };
+    return `${opening[0]}[skill text omitted after the plan was approved]${text.slice(end)}`;
+  };
+  const out = messages.map((message): ContextMessage => {
+    if (!early(message) || message === kept) return message;
+    if (message.role === "toolResult") {
+      const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+      if (text.length < 200) return message;
+      changed = true;
+      return { ...message, content: [{ type: "text", text: "[planning-stage result omitted after the plan was approved]" }] };
+    }
+    if (message.role === "user") {
+      return { ...message, content: typeof message.content === "string" ? skillStub(message.content)
+        : message.content.map((part) => (part.type === "text" ? { ...part, text: skillStub(part.text) } : part)) };
+    }
+    if (message.role === "assistant") {
+      return { ...message, content: message.content.map((part) => {
+        if (part.type !== "toolCall") return part;
+        const long = Object.entries(part.arguments ?? {}).filter(([, value]) => typeof value === "string" && value.length >= 200);
+        if (!long.length) return part;
+        changed = true;
+        return { ...part, arguments: { ...part.arguments,
+          ...Object.fromEntries(long.map(([key]) => [key, "[omitted after the plan was approved]"])) } };
+      }) };
+    }
+    return message;
   });
   return changed ? out : undefined;
 }
@@ -466,6 +525,16 @@ export default async function planApproval(pi: ExtensionAPI) {
       if (skill?.file === file) return { content: event.content.map((part) => part.type === "text"
         ? { ...part, text: skill.adapt(part.text) } : part) };
     }
+    if (state?.status === "approved" && event.toolName === "find" && executingPlans) {
+      const pattern = (event.input as { pattern?: unknown }).pattern;
+      const found = event.content.map((item) => (item.type === "text" ? item.text : "")).join("\n");
+      if (typeof pattern !== "string" || !found.trimStart().startsWith("No files found")) return;
+      const files = packageFiles(dirname(dirname(executingPlans)), pattern)
+        .map((file) => `\`${repoRelativePath(ctx.cwd, file) ?? file}\``);
+      if (!files.length) return;
+      return { content: [...event.content, { type: "text", text: "`find` skips git-ignored folders, and the " +
+        `Superpowers package is installed in one. It is at ${files.join(", ")}; use that path as written.` }] };
+    }
     if (state?.status !== "approved" || !state.plan || event.toolName !== "bash") return;
     const command = (event.input as { command?: unknown }).command;
     if (typeof command !== "string") return;
@@ -479,7 +548,8 @@ export default async function planApproval(pi: ExtensionAPI) {
         return { ...part, text };
       }) };
     }
-    const script = command.match(/executing-plans\/scripts\/(task-start|task-done)\s+(\S+)\s+(\d+)\b/);
+    // The plan path may be quoted; the scripts take it either way.
+    const script = command.match(/executing-plans\/scripts\/(task-start|task-done)\s+["']?([^\s"']+)["']?\s+(\d+)\b/);
     if (!script || resolve(ctx.cwd, script[2]) !== resolve(ctx.cwd, state.plan)) return;
     const text = event.content.map((item) => (item.type === "text" ? item.text : "")).join("\n");
     const n = Number(script[3]);
@@ -502,7 +572,18 @@ export default async function planApproval(pi: ExtensionAPI) {
       const tasks = planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8"));
       if (tasks.length && tasks.every((task) => progress.recorded.includes(task.number)) && suitePasses(ctx.cwd)) {
         const review = finalReviewInstructions(ctx.cwd, state.plan, state.head, executingPlans);
-        return { content: [...event.content, { type: "text", text: `${ALL_DONE}\n${review}` }] };
+        // The review package holds commits only, and the finish step leaves the phase unmarked while
+        // implementation files are uncommitted: on 2026-11-27 that happened in 3 of 6 runs.
+        const left = uncommittedImplementation(ctx.cwd, projectConfig(ctx.cwd).implementation);
+        const commit = left.length ? `Not committed yet: ${left.join(", ")}. Commit them first, with ` +
+          `\`git add ${left.join(" ")}\` and then \`git commit\`: the review reads commits, and the finish step ` +
+          "will not mark the phase done while they are uncommitted.\n" : "";
+        return { content: [...event.content, { type: "text", text: `${ALL_DONE}\n${commit}${review}` }] };
+      }
+      const next = tasks.find((task) => !progress.recorded.includes(task.number));
+      if (next) {
+        return { content: [...event.content, { type: "text", text: nextTaskLine(state.plan, next,
+          progress.started[next.number], scriptsDir(), { test: taskTest(ctx.cwd) }) }] };
       }
     }
   });
@@ -542,12 +623,17 @@ export default async function planApproval(pi: ExtensionAPI) {
 
   // Planning-stage tool results (skill text, file reads) are 10 to 14K tokens of a 60K window when
   // execution starts. After approval each is replaced by a stub in the request; the call and its
-  // result keep their place, so the conversation stays well formed.
+  // result keep their place, so the conversation stays well formed. On 2026-11-27 the earlier stages' skill
+  // text and saved drafts were another 5,500 tokens or so, and the final review compacted in 5 of 11 full runs,
+  // each time within a few thousand tokens of fitting; they get the same stubs.
   pi.on("context", (event, ctx) => {
     const state = stateFor(ctx);
-    let messages = state?.status === "approved" && state.approvedAt ? stubPlanningResults(event.messages, state.approvedAt) : undefined;
+    let messages: ContextMessage[] | undefined;
     for (const skill of knownSkills()) {
       messages = projectSkill(messages ?? event.messages, skill.name, skill.file, skill.adapt) ?? messages;
+    }
+    if (state?.status === "approved" && state.approvedAt) {
+      messages = stubPlanningResults(messages ?? event.messages, state.approvedAt, "executing-plans", SAVE_DESIGN) ?? messages;
     }
     return messages ? { messages } : undefined;
   });

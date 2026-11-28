@@ -161,6 +161,14 @@ one run in each arm.
 `.gitignore` and so cannot walk `.venv`. In one rehearsal a shell `find .` walked
 `.venv`, returned about 21,000 tokens and forced a compaction.
 
+The same rule hides the Superpowers package, which Pi installs under the ignored `.pi/git/`. In the seven full
+runs of 2026-11-27, 74 `find` calls came back "No files found"; 45 of them named a file or folder of the package
+(`code-reviewer.md`, `review-package`, `task-start`), and in three runs Mellum then searched the whole disk at 30
+seconds a try. During execution, [`plan-approval.ts`](pi-extensions/plan-approval.ts) now adds the real path to
+an empty `find` result when the package has a file or folder of that name. Names with wildcards and names the
+package does not have are left alone. In 41 full runs on 2026-11-28 the path was added 48 times and one of
+the next four calls used it 42 times.
+
 [`.rgignore`](.rgignore) excludes `.git` from Pi's default recursive `grep`.
 After a reset, a search once surfaced reflog entries from a previous Phase 4
 run and led Pi to treat those commits as current work. Keep `.git` as the only
@@ -276,7 +284,14 @@ out). Most cost one retry of a few seconds; once, `bad BASE: BASE` was followed
 by four 30-second searches of the disk for the scripts. In two full runs with
 the change, none of 9 `task-done` calls was malformed: one run ran the given
 command as written in 4 of 5 calls, the other kept its number and base and put
-its own narrower test after `--`. Superpowers'
+its own narrower test after `--`. A recorded task's `task-done` result ends the
+same way, with the next task's `task-start` command, or with its `task-done`
+command when that task was already started: after a compaction in one run the
+note said to continue Task 3 and nothing gave the command for Task 4, and
+Mellum looked for a Task 4 brief that did not exist yet. The guard reads these
+calls with the plan path quoted or bare: one run of 16 on 2026-11-28 quoted it
+in every call, so nothing was tracked, no command was given, and 8 `task-done`
+calls failed (139 seconds). Superpowers'
 `task-done` checks only that the base commit exists and the tests pass: in all
 three full runs on 2026-11-27 it recorded tasks with an empty commit range, one
 plan had a single commit step for four tasks, and one run reasoned "they were
@@ -339,10 +354,27 @@ progress, uncommitted changes, files read and changed), so a compaction makes no
 model call; Mellum's summaries took a median 64 seconds, mostly thinking, and
 two hit the output cap after about three minutes. Planning-stage tool results
 longer than 200 characters, mostly skill text, are replaced by a short stub in
-each request; the call and its result keep their place. And when `task-done`
+each request; the call and its result keep their place. So are the text of the
+skills the earlier stages loaded and the drafts passed to `save_design` and
+`save_plan`, about 5,500 tokens of the 17,000 an execution started with: a
+clean run ends its tasks at 30,000 to 35,000 tokens, the final review reads
+another 8,000 to 13,000, and Pi compacts at 43,600, so the review compacted in
+5 of 11 full runs on 2026-11-27 and started over each time (50 to 90 seconds
+more, and 8 minutes in one run). With the stubs it compacted in 6 of 16 runs on
+2026-11-28. The last design saved before approval stays whole (2,100 to 4,300
+characters): in those 16 runs every draft was stubbed, and 3 runs gave the
+button a shorter label than the roadmap's, where the plan had left the label
+out and no request carried the design. The 11 runs before, which still carried
+it, all got the label right. With the design kept, 25 full runs later that day
+all got the label right, 7 of them from a plan that left it out, and the review
+compacted in 6 of the 23 runs that reached one. And when `task-done`
 records the plan's last task, the guard runs the full suite; if it passes, the
 tool result confirms both checks and supplies the local reviewer path and
-`review-package` command with the commit recorded at approval. Pi reviews the
+`review-package` command with the commit recorded at approval. If
+implementation files are uncommitted at that point, the result names them and
+gives the `git add` command first, because the review package holds commits
+only and the finish prompt will not mark the phase done until they are
+committed: 3 of 6 runs with the finish check ended that way. Pi reviews the
 package and any uncommitted implementation changes, then reports and stops for
 human verification. The compaction summary can give Pi the same review paths.
 

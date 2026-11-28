@@ -535,6 +535,56 @@ test("a task-start result ends with that task's task-done command, nothing left 
   assert.deepEqual(errors, []);
 });
 
+test("a task call with the plan path in quotes is tracked like any other", async (context) => {
+  // 2026-11-28: one run of 16 quoted the plan path in every call. Nothing was tracked, so no task-done command was
+  // given, 8 task-done calls failed (139 seconds), and the one unquoted call was answered with "Next: Task 1".
+  const { errors, result } = await approvedRun(context);
+  const started = await result(`${scripts}/task-start "${plan}" 1`, "brief: /w/task-1-brief.md\nbase: abc1234def5678");
+  assert.match(started.content.at(-1).text, /^Finish Task 1 with /);
+  const recorded = await result(`${scripts}/task-done '${plan}' 1 "abc1234" -- uv run --frozen python -m pytest tests`, ledgerLine(1));
+  assert.ok(recorded.content.at(-1).text.startsWith("Next: Task 2."), recorded.content.at(-1).text);
+  assert.deepEqual(errors, []);
+});
+
+test("a recorded task's result gives the next task's task-start command", async (context) => {
+  const { errors, result } = await approvedRun(context);
+  const recorded = await result(taskDone(1), "1 passed\n" + ledgerLine(1));
+  const text = recorded.content.map((part) => part.text).join("\n");
+  assert.match(text, /^ledger: Task 1: complete/m);
+  assert.ok(text.endsWith(`Next: Task 2. Start it with \`${scripts}/task-start ${plan} 2\`.`), text);
+  // 2026-11-27: one run started Tasks 2 to 4 before finishing Task 2; a started task gets its finish command.
+  const other = await approvedRun(context);
+  await other.result(taskStart(2), "brief: /w/task-2-brief.md\nbase: abc1234");
+  const ahead = (await other.result(taskDone(1), ledgerLine(1))).content.map((part) => part.text).join("\n");
+  assert.match(ahead, /Next: Continue Task 2 from its brief \/w\/task-2-brief\.md/);
+  assert.ok(ahead.includes(`${scripts}/task-done ${plan} 2 abc1234 -- uv run --frozen python -m pytest tests`), ahead);
+  assert.deepEqual([...errors, ...other.errors], []);
+});
+
+test("an empty find for a file in the Superpowers package gets its real path", async (context) => {
+  const { cwd, errors, runner } = await approvedRun(context);
+  const find = (pattern, text = "No files found matching pattern") => runner.emitToolResult({ type: "tool_result",
+    toolCallId: "f", toolName: "find", input: { pattern, path: "." }, content: [{ type: "text", text }], isError: false });
+  const where = (file) => { const rel = path.relative(cwd, file); return rel.startsWith("..") ? file : rel; };
+  // Pi's find skips git-ignored folders, and the project's Superpowers package is installed in one: on
+  // 2026-11-27, 26 such searches in 3 of 7 runs came back empty and led to 30-second searches of the disk.
+  const script = (await find("task-done")).content.map((part) => part.text).join("\n");
+  assert.match(script, /^No files found matching pattern/);
+  assert.ok(script.includes(where(path.join(scripts, "task-done"))), script);
+  assert.match(script, /skips git-ignored folders/);
+  const reviewer = (await find("**/code-reviewer.md")).content.map((part) => part.text).join("\n");
+  assert.ok(reviewer.includes(where(path.join(path.dirname(path.dirname(scripts)), "requesting-code-review/code-reviewer.md"))), reviewer);
+  const nested = (await find("references/final-review.md")).content.map((part) => part.text).join("\n");
+  assert.match(nested, /subagent-driven-development\/references\/final-review\.md/);
+  const bare = (await find("scripts")).content.at(-1).text;
+  assert.ok(bare.includes(`It is at \`${where(scripts)}\``), bare);
+  // A search that found something, a name the package does not have, and a wildcard name are left alone.
+  assert.equal(await find("task-done", "scripts/task-done"), undefined);
+  assert.equal(await find("test_resolve.py"), undefined);
+  assert.equal(await find("*.md"), undefined);
+  assert.deepEqual(errors, []);
+});
+
 test("failed task-start and task-done calls record nothing", async (context) => {
   const { errors, result, compact, sent, note } = await approvedRun(context);
   await result(taskStart(1), "brief: /w/task-1-brief.md\nbase: abc1234", true);
@@ -712,6 +762,90 @@ test("after approval, planning-stage tool results leave the request but keep the
   assert.deepEqual(run.errors, []);
 });
 
+test("after approval, earlier stages' skill text and saved drafts leave the request", async (context) => {
+  const run = await setup(context);
+  await run.say(planning);
+  await run.start(planning);
+  await writeFile(path.join(run.cwd, plan), twoTasks);
+  const before = Date.now() - 1000;
+  const ask = "The Phase 4 design looks good. Proceed with planning.";
+  const skillText = (name, file, body, prompt) => ({ role: "user", timestamp: before,
+    content: [{ type: "text", text: `<skill name="${name}" location="${file}">\n${body}\n</skill>\n\n${prompt}` }] });
+  const assistant = (name, args, timestamp) => ({ role: "assistant", content: [{ type: "toolCall", id: name, name, arguments: args }],
+    api: "openai-completions", provider: "lmstudio", model: "m", usage: {}, stopReason: "toolUse", timestamp });
+  const planSkill = skillText("writing-plans", writingPlans, "w".repeat(9000), ask);
+  const saved = assistant("save_plan", { path: plan, content: "# Plan\n" + "p".repeat(8000) }, before);
+  // Before approval the planning request is whole.
+  const drafting = await run.runner.emitContext([planSkill, saved]);
+  assert.equal((drafting ?? [planSkill, saved])[1].content[0].arguments.content.length, 8007);
+  await run.say("/skill:executing-plans " + APPROVAL);
+  await run.start("/skill:executing-plans " + APPROVAL);
+  const after = Date.now() + 1000;
+  const executing = { ...skillText("executing-plans", executingSkill.filePath, "e".repeat(9000), APPROVAL), timestamp: after };
+  const edit = assistant("write", { path: "app.py", content: "a".repeat(8000) }, after);
+  const loaded = await sdk.discoverAndLoadExtensions([extension], run.cwd, run.cwd);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, run.cwd, run.session, undefined);
+  const out = await runner.emitContext([planSkill, saved, executing, edit]);
+  assert.equal(out.length, 4);
+  // 2026-11-27: these were about 5,500 tokens of the 17,000 an execution started with, and in 5 of 11 full
+  // runs the final review crossed the compaction threshold by less than that.
+  const text = out[0].content[0].text;
+  assert.ok(text.startsWith(`<skill name="writing-plans" location="${writingPlans}">\n`), text.slice(0, 120));
+  assert.match(text, /skill text omitted after the plan was approved/);
+  assert.doesNotMatch(text, /wwww/);
+  assert.ok(text.endsWith(`\n</skill>\n\n${ask}`), "the user's own words stay");
+  assert.deepEqual(out[1].content[0].arguments, { path: plan, content: "[omitted after the plan was approved]" });
+  assert.equal(out[1].content[0].id, "save_plan");
+  assert.match(out[2].content[0].text, /eeee/, "the skill being executed stays");
+  assert.equal(out[3].content[0].arguments.content.length, 8000, "execution-stage calls stay");
+  assert.equal(planSkill.content[0].text.length > 9000, true, "the session's own messages are untouched");
+  assert.equal(saved.content[0].arguments.content.length, 8007);
+  assert.deepEqual(run.errors, []);
+});
+
+test("after approval, the last saved design stays in the request", async (context) => {
+  const run = await setup(context);
+  await run.say(planning);
+  await run.start(planning);
+  await writeFile(path.join(run.cwd, plan), twoTasks);
+  const before = Date.now() - 1000;
+  const call = (id, name, content) => ({ role: "assistant", timestamp: before, api: "openai-completions", provider: "lmstudio",
+    model: "m", usage: {}, stopReason: "toolUse",
+    content: [{ type: "toolCall", id, name, arguments: { path: `docs/superpowers/${id}.md`, content } }] });
+  const firstDraft = call("specs/first", "save_design", "# Design\n" + "old ".repeat(700));
+  const design = call("specs/final", "save_design", "# Design\nThe button says Save all.\n" + "d".repeat(2800));
+  const saved = call("plans/plan", "save_plan", "# Plan\n" + "p".repeat(8000));
+  await run.say("/skill:executing-plans " + APPROVAL);
+  await run.start("/skill:executing-plans " + APPROVAL);
+  const loaded = await sdk.discoverAndLoadExtensions([extension], run.cwd, run.cwd);
+  const runner = new sdk.ExtensionRunner(loaded.extensions, loaded.runtime, run.cwd, run.session, undefined);
+  const out = await runner.emitContext([firstDraft, design, saved]);
+  // 2026-11-28: with every draft stubbed, 3 of 16 full runs built a button with a shorter label than the roadmap's.
+  // Each plan had left the label out, and no execution request carried the design. In the 11 runs before, the
+  // saved design was still in the request and all 11 got the label right.
+  assert.equal(out[0].content[0].arguments.content, "[omitted after the plan was approved]", "an earlier draft goes");
+  assert.match(out[1].content[0].arguments.content, /The button says Save all\./, "the design that was approved stays");
+  assert.equal(out[2].content[0].arguments.content, "[omitted after the plan was approved]", "the plan comes back in task briefs");
+  assert.deepEqual(run.errors, []);
+});
+
+test("completion names implementation files that are not committed yet", async (context) => {
+  await fakeUv(context, 0);
+  const { cwd, errors, result } = await approvedRun(context, { withGit: true });
+  await writeFile(path.join(cwd, "app.py"), "app = 1\n");
+  await mkdir(path.join(cwd, "tests"), { recursive: true });
+  await writeFile(path.join(cwd, "tests/test_resolve.py"), "def test_x():\n    assert True\n");
+  await result(taskDone(1), ledgerLine(1));
+  const text = (await result(taskDone(2), ledgerLine(2))).content[1].text;
+  // 2026-11-27: 3 of 6 runs with the finish check ended with route code or a test file uncommitted, so the
+  // finish prompt did not mark the phase done.
+  assert.match(text, /Not committed yet: app\.py, tests\/test_resolve\.py\./);
+  assert.ok(text.includes("`git add app.py tests/test_resolve.py`"), text);
+  assert.match(text, /will not mark the phase done/);
+  assert.ok(text.indexOf("Not committed yet") < text.indexOf("For the final review"), "committing comes before the review");
+  assert.deepEqual(errors, []);
+});
+
 async function fakeUv(context, exitCode) {
   const bin = await mkdtemp(path.join(tmpdir(), "pi-fake-uv-"));
   context.after(() => rm(bin, { recursive: true, force: true }));
@@ -737,6 +871,7 @@ test("completion reports a green suite and gives Pi repo-relative final review p
   const completed = await result(taskDone(2), ledgerLine(2));
   assert.equal(completed?.content[0].text, ledgerLine(2));
   assert.match(completed.content[1].text, /Every task in the plan is recorded and the full test suite passes/);
+  assert.doesNotMatch(completed.content[1].text, /Not committed yet/);
   const compacted = await emit(compactEvent(cwd));
   const script = path.join(skillRoot, "subagent-driven-development/scripts/review-package");
   const reviewer = `${packageDir}/skills/requesting-code-review/code-reviewer.md`;
