@@ -17,7 +17,7 @@ const withConfig = async (cwd) => {
   await mkdir(path.join(cwd, ".pi"), { recursive: true });
   await writeFile(path.join(cwd, ".pi/project.json"), await readFile(path.join(repo, ".pi/project.json")));
 };
-const NOTE_CONTEXT = { phase: 4, pytest: "uv run --frozen python -m pytest" };
+const NOTE_CONTEXT = { phase: 4, test: "uv run --frozen python -m pytest tests" };
 const skills = sdk.loadSkillsFromDir({ dir: path.join(process.env.SUPERPOWERS_DIR, "skills"), source: "user" }).skills;
 const brainstormingSkill = skills.find((skill) => skill.name === "brainstorming");
 const writingPlans = skills.find((skill) => skill.name === "writing-plans").filePath;
@@ -522,6 +522,16 @@ test("after a compaction mid-task, Pi is told to continue that task", async (con
   assert.equal(sent[0].options.triggerTurn, undefined);
   assert.equal(sent[0].message.customType, "plan-note");
   assert.equal(sent[0].message.content, note({ started: { 1: { brief: "/w/task-1-brief.md", base: "abc1234" } }, recorded: [] }));
+  assert.deepEqual(errors, []);
+});
+
+test("a task-start result ends with that task's task-done command, nothing left to fill in", async (context) => {
+  const { errors, result } = await approvedRun(context);
+  const started = await result(taskStart(2), "brief: /w/task-2-brief.md\nbase: abc1234def5678abc1234def5678abc1234def567");
+  const text = started.content.map((part) => part.text).join("\n");
+  assert.match(text, /^brief: \/w\/task-2-brief\.md$/m);
+  assert.ok(text.endsWith(`Finish Task 2 with \`${scripts}/task-done ${plan} 2 abc1234 -- uv run --frozen python -m pytest tests\`.`), text);
+  assert.equal(await result(taskStart(1), "usage: task-start PLAN_FILE TASK_NUMBER"), undefined);
   assert.deepEqual(errors, []);
 });
 

@@ -251,9 +251,18 @@ is part of the execution prompt; the guard strips that prefix before matching
 the approval text. The guard adapts the model's copy of the skill, including
 direct rereads, so its diagram and Finish section end at a report for human
 verification. When approval unlocks execution, the guard adds one note to
-that turn: the plan's path, its tasks, the exact `task-start` and `task-done`
-commands, and an instruction to work the tasks in order, commit as each task
-says, and not move on until `task-done` records the task. Superpowers'
+that turn: the plan's path, its tasks, the exact `task-start` command, and an
+instruction to work the tasks in order, commit as each task says, and not move
+on until `task-done` records the task. Each `task-start` result ends with that
+task's whole `task-done` command: the task number, the base `task-start` just
+printed, and the config's `testSuite`. Until 2026-11-27 the note gave
+`task-done … N BASE -- … TEST_FILES` to fill in, and 14 of 36 `task-done` calls
+in 5 full runs were malformed (run as written in 3 runs, or with the base left
+out). Most cost one retry of a few seconds; once, `bad BASE: BASE` was followed
+by four 30-second searches of the disk for the scripts. In two full runs with
+the change, none of 9 `task-done` calls was malformed: one run ran the given
+command as written in 4 of 5 calls, the other kept its number and base and put
+its own narrower test after `--`. Superpowers'
 `task-done` checks only that the base commit exists and the tests pass: in all
 three full runs on 2026-11-27 it recorded tasks with an empty commit range, one
 plan had a single commit step for four tasks, and one run reasoned "they were

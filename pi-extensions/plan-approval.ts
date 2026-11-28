@@ -52,8 +52,14 @@ const dateNote = (date: string, stage: "design" | "planning") => stage === "desi
 
 export interface PlanTask { number: number; title: string }
 export interface PlanProgress { started: Record<number, { brief: string; base: string }>; recorded: number[] }
-/** The phase the plan belongs to and the project's test runner, from .pi/project.json. */
-export interface NoteContext { phase?: number; pytest?: string }
+/** The phase the plan belongs to and the test command task-done runs, from .pi/project.json. */
+export interface NoteContext { phase?: number; test?: string }
+
+// The whole call for one started task. On 2026-11-27, 14 of 36 task-done calls in 5 full runs were malformed:
+// the note's `N BASE … TEST_FILES` run as written, or the base left out. The short base is what the ledger shows.
+export function taskDoneCommand(scripts: string, plan: string, task: number, base: string, test: string): string {
+  return `${scripts}/task-done ${plan} ${task} ${base.slice(0, 7)} -- ${test}`;
+}
 
 // Any heading level, outside fenced code, as Superpowers' task-brief reads them; 2 of 61 Mellum plans used `##`.
 export function planTasks(markdown: string): PlanTask[] {
@@ -85,16 +91,18 @@ export function planNote(plan: string, tasks: PlanTask[], progress: PlanProgress
       ? `Next: the first task the plan lists. Start it with \`${scripts}/task-start ${plan} N\`, N being its number.`
       : started
         ? `Next: Continue Task ${next.number} from its brief ${started.brief} with base ${started.base}; ` +
-          "do not run task-start again for it."
+          "do not run task-start again for it." + (context.test ? " Finish it with " +
+            `\`${taskDoneCommand(scripts, plan, next.number, started.base, context.test)}\`.` : "")
         : `Next: Task ${next.number}. Start it with \`${scripts}/task-start ${plan} ${next.number}\`.`,
     // "Record it rather than redoing it" let runs record tasks they never worked; the brief check keeps
     // the shortcut for real finished work without inviting that.
     ...(commits.length ? [`Commits since approval: ${commits.join("; ")}. If a task's work is already committed, ` +
       "run task-start for it, check its brief's steps against that commit, do any step that is missing, " +
       "then run task-done."] : []),
-    `Finish each task with \`${scripts}/task-done ${plan} N BASE -- ` +
-      `${context.pytest ? `${context.pytest} TEST_FILES` : "TEST_COMMAND"}\`; ` +
-      "the test command goes as separate words after --, not one quoted string.",
+    context.test
+      ? "Finish each task with the task-done command its task-start result gives."
+      : `Finish each task with \`${scripts}/task-done ${plan} N BASE -- TEST_COMMAND\`; ` +
+        "the test command goes as separate words after --, not one quoted string.",
     // Run from the Superpowers folder, task-start's workspace script loops forever on a sandboxed mkdir.
     "Run the scripts from the project folder exactly as written, without cd: they are installed outside the " +
       "project on purpose.",
@@ -314,6 +322,12 @@ export function stubPlanningResults(messages: ContextMessage[], approvedAt: numb
   return changed ? out : undefined;
 }
 
+// What task-done runs for a task: the whole suite, so the command has no part left for the model to fill in.
+function taskTest(cwd: string): string | undefined {
+  const config = projectConfig(cwd);
+  return config.testSuite ?? config.pytest;
+}
+
 function suitePasses(cwd: string): boolean {
   const suite = projectConfig(cwd).testSuite;
   if (!suite) return false;
@@ -416,7 +430,7 @@ export default async function planApproval(pi: ExtensionAPI) {
       if (state?.status !== "approved" || !state.plan) return;
       const note = planNote(state.plan, planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8")),
         state.progress ?? { started: {}, recorded: [] }, scriptsDir(), [],
-        { phase: state.phase, pytest: projectConfig(ctx.cwd).pytest });
+        { phase: state.phase, test: taskTest(ctx.cwd) });
       if (note) return { message: { customType: PLAN_NOTE, content: note, display: true } };
       return;
     }
@@ -470,16 +484,20 @@ export default async function planApproval(pi: ExtensionAPI) {
     const text = event.content.map((item) => (item.type === "text" ? item.text : "")).join("\n");
     const n = Number(script[3]);
     const progress = structuredClone(state.progress ?? { started: {}, recorded: [] });
+    let finish: string | undefined;
     if (script[1] === "task-start") {
       const brief = text.match(/^brief: (.+)$/m)?.[1];
       const base = text.match(/^base: (\S+)$/m)?.[1];
       if (!brief || !base) return;
       progress.started[n] = { brief: brief.trim(), base };
+      const test = taskTest(ctx.cwd);
+      if (test) finish = `Finish Task ${n} with \`${taskDoneCommand(scriptsDir(), state.plan, n, base, test)}\`.`;
     } else {
       if (!new RegExp(`^ledger: Task ${n}: complete\\b`, "m").test(text) || progress.recorded.includes(n)) return;
       progress.recorded.push(n);
     }
     pi.appendEntry<PlanState>(ENTRY, { ...state, progress });
+    if (finish) return { content: [...event.content, { type: "text", text: finish }] };
     if (script[1] === "task-done") {
       const tasks = planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8"));
       if (tasks.length && tasks.every((task) => progress.recorded.includes(task.number)) && suitePasses(ctx.cwd)) {
@@ -505,7 +523,7 @@ export default async function planApproval(pi: ExtensionAPI) {
     const log = state.head ? gitOutput(ctx.cwd, "log", "--oneline", "--reverse", `${state.head}..HEAD`) : undefined;
     return planNote(state.plan, planTasks(readFileSync(join(ctx.cwd, state.plan), "utf8")),
       { ...progress, recorded }, scriptsDir(), log ? log.split("\n") : [],
-      { phase: state.phase, pytest: projectConfig(ctx.cwd).pytest });
+      { phase: state.phase, test: taskTest(ctx.cwd) });
   };
 
   // During execution the guard writes the compaction summary from what it tracks, so a compaction

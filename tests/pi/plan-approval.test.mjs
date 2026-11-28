@@ -32,15 +32,17 @@ test("planNote names the plan, its tasks, the scripts and where Pi is", async ()
   const tasks = planTasks("# P\n### Task 1: Model\n...\n### Task 2: Routes\n");
   const s = "/sp/skills/executing-plans/scripts";
   const plan = "docs/superpowers/plans/2026-11-25-p.md";
-  const fresh = planNote(plan, tasks, { started: {}, recorded: [] }, s, [], { phase: 4, pytest: "uv run --frozen python -m pytest" });
+  const context = { phase: 4, test: "uv run --frozen python -m pytest tests" };
+  const fresh = planNote(plan, tasks, { started: {}, recorded: [] }, s, [], context);
   assert.match(fresh, /^Phase 4 plan: docs\/superpowers\/plans\/2026-11-25-p\.md\./);
   assert.match(fresh, /docs\/superpowers\/plans\/2026-11-25-p\.md/);
   assert.match(fresh, /Task 1: Model/);
   assert.match(fresh, /Task 2: Routes/);
   assert.ok(fresh.includes(`${s}/task-start ${plan} 1`));
-  assert.ok(fresh.includes(`${s}/task-done ${plan} N BASE -- uv run --frozen python -m pytest TEST_FILES`));
+  // 2026-11-27: 3 of 5 full runs ran the note's `task-done … N BASE -- … TEST_FILES` as written.
+  assert.doesNotMatch(fresh, /\bN BASE\b|TEST_FILES|TEST_COMMAND/, "nothing to copy with a placeholder in it");
+  assert.match(fresh, /Finish each task with the task-done command its task-start result gives/);
   assert.doesNotMatch(fresh, /</, "a copied placeholder must not become a shell redirect");
-  assert.match(fresh, /separate words after --/);
   assert.match(fresh, /Next: Task 1/);
   assert.match(fresh, /commit as each task's steps say/i);
   assert.match(fresh, /until task-done records/i);
@@ -52,6 +54,12 @@ test("planNote names the plan, its tasks, the scripts and where Pi is", async ()
   assert.match(mid, /abc1234/);
   assert.match(mid, /\/b\/task-2-brief\.md/);
   assert.match(mid, /do not run task-start again/i);
+  // Without a configured test command the note can only describe the call.
+  assert.ok(mid.includes(`${s}/task-done p.md N BASE -- TEST_COMMAND`));
+  assert.match(mid, /separate words after --/);
+  const base = "abc1234def5678abc1234def5678abc1234def567";
+  const resumed = planNote(plan, tasks, { started: { 2: { brief: "/b/task-2-brief.md", base } }, recorded: [1] }, s, [], context);
+  assert.ok(resumed.includes(`Finish it with \`${s}/task-done ${plan} 2 abc1234 -- uv run --frozen python -m pytest tests\`.`), resumed);
   assert.equal(planNote("p.md", tasks, { started: {}, recorded: [1, 2] }, s), undefined);
 });
 
@@ -100,9 +108,10 @@ test("planNote lists commits since approval, and finished work is checked agains
 test("planNote takes the phase and test runner from the project config, and names neither without it", async () => {
   const { planTasks, planNote } = await import("../../pi-extensions/plan-approval.ts");
   const tasks = planTasks("### Task 1: Model\n");
-  const five = planNote("p.md", tasks, { started: {}, recorded: [] }, "/s", [], { phase: 5, pytest: "npm test --" });
+  const started = { started: { 1: { brief: "/b/task-1-brief.md", base: "abc1234" } }, recorded: [] };
+  const five = planNote("p.md", tasks, started, "/s", [], { phase: 5, test: "npm test" });
   assert.match(five, /^Phase 5 plan: p\.md\./);
-  assert.ok(five.includes("/s/task-done p.md N BASE -- npm test -- TEST_FILES"));
+  assert.ok(five.includes("/s/task-done p.md 1 abc1234 -- npm test`"), five);
   const bare = planNote("p.md", tasks, { started: {}, recorded: [] }, "/s");
   assert.match(bare, /^Plan: p\.md\./);
   assert.ok(bare.includes("/s/task-done p.md N BASE -- TEST_COMMAND"));
