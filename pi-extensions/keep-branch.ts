@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { matchPrompt, phaseHeadingPattern, projectConfig, type ProjectConfig } from "./project-config.ts";
+import { matchPrompt, phaseHeadingPattern, projectConfig, uncommittedImplementation, type ProjectConfig } from "./project-config.ts";
 
 const DONE = /\b(?:done|complete|completed)\b/i;
 
@@ -94,6 +94,7 @@ export default function keepBranch(pi: ExtensionAPI) {
     finishing = true;
     const checks: { command: string; passed: boolean; output: string }[] = [];
     let markedDone = false;
+    let uncommitted: string[] = [];
     let summary: string;
     try {
       const revision = implementation(ctx.cwd, config.implementation ?? []);
@@ -111,7 +112,14 @@ export default function keepBranch(pi: ExtensionAPI) {
         stable = stable && implementation(ctx.cwd, config.implementation ?? []) === revision;
       }
 
-      if (stable && checks.every((check) => check.passed)) {
+      // The suite runs on the working tree, so it passes with work no commit holds: on 2026-11-27 a run was
+      // marked done with its route and a new test file uncommitted.
+      const passed = stable && checks.every((check) => check.passed);
+      if (passed) uncommitted = uncommittedImplementation(ctx.cwd, config.implementation);
+      if (passed && uncommitted.length) {
+        summary = `Phase ${phase} was not marked done because these implementation files are not committed: ` +
+          `${uncommitted.join(", ")}. Commit them, or ask Pi to commit them, and send the finish prompt again.`;
+      } else if (passed) {
         const path = join(ctx.cwd, roadmap.path);
         const text = readFileSync(path, "utf8");
         const pattern = phaseHeadingPattern(roadmap.template, phase);
@@ -139,7 +147,7 @@ export default function keepBranch(pi: ExtensionAPI) {
       customType: "phase-finish",
       display: true,
       content: [summary, ...report].join("\n\n"),
-      details: { markedDone, checks },
+      details: { markedDone, checks, uncommitted },
     });
     return { action: "handled" };
   });

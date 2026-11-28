@@ -129,10 +129,23 @@ test("the finish prompt runs the test suite and marks Phase 4 done when it passe
   assert.equal(sent[0].details.markedDone, false);
   assert.equal(await readFile(path.join(project, "specs/roadmap.md"), "utf8"), pending + "\n");
 
+  // A green suite is not enough while implementation files are uncommitted: on 2026-11-27 a run was marked
+  // done with its route in `app.py` and a new test file never committed.
   await writeFile(check, "def test_check():\n    assert True\n");
   await finish();
   assert.equal(sent.length, 2);
-  assert.equal(sent[1].details.markedDone, true, sent[1].content);
+  assert.equal(sent[1].details.markedDone, false, sent[1].content);
+  assert.deepEqual(sent[1].details.uncommitted, ["pyproject.toml", "tests/test_check.py", "uv.lock"]);
+  assert.match(sent[1].content, /not marked done because these implementation files are not committed: pyproject\.toml, tests\/test_check\.py, uv\.lock/);
+  assert.match(sent[1].content, /Commit them.*send the finish prompt again/s);
+  assert.match(sent[1].content, /PASS `uv run --frozen python -m pytest tests`/);
+  assert.equal(await readFile(path.join(project, "specs/roadmap.md"), "utf8"), pending + "\n");
+
+  execFileSync("git", ["add", "pyproject.toml", "uv.lock", "tests"], { cwd: project });
+  execFileSync("git", ["-c", "user.email=t@localhost", "-c", "user.name=T", "commit", "-q", "-m", "feat"], { cwd: project });
+  await finish();
+  assert.equal(sent.length, 3);
+  assert.equal(sent[2].details.markedDone, true, sent[2].content);
   assert.equal(await readFile(path.join(project, "specs/roadmap.md"), "utf8"), done + "\n");
   assert.deepEqual(errors, []);
 });

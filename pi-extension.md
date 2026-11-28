@@ -253,7 +253,18 @@ direct rereads, so its diagram and Finish section end at a report for human
 verification. When approval unlocks execution, the guard adds one note to
 that turn: the plan's path, its tasks, the exact `task-start` and `task-done`
 commands, and an instruction to work the tasks in order, commit as each task
-says, and not move on until `task-done` records the task. If several plans
+says, and not move on until `task-done` records the task. Superpowers'
+`task-done` checks only that the base commit exists and the tests pass: in all
+three full runs on 2026-11-27 it recorded tasks with an empty commit range, one
+plan had a single commit step for four tasks, and one run reasoned "they were
+committed via task-done" and never committed its route. A refusal of `task-done`
+while implementation files were uncommitted was tried the same day in two full
+runs and removed. It fired once in each, and Mellum committed within seconds,
+but it added every listed file, so one commit held two or three tasks' work.
+Those runs took 949 and 1150 seconds, against 301 and 357 for the two without
+it; with two runs each that may be ordinary variation. The finish check below
+still stops a phase from being marked done with implementation files
+uncommitted. If several plans
 were saved while planning, the note names the newest. On 2026-11-25, one run
 never opened its plan during execution and skipped every commit step, and
 another passed `task-done` its test command as one quoted string.
@@ -329,7 +340,9 @@ over three minutes because the model had run the grader with `-v` added.
 When you send the README’s finish prompt, the extension runs
 `uv run --frozen python -m pytest tests` itself. If it passes and the implementation stays the same during the
 check, Pi marks Phase 4 done in `specs/roadmap.md` and reports the result without starting a model turn. If a check fails, Pi reports the failure and leaves the
-roadmap heading as it was.
+roadmap heading as it was. It also leaves the heading alone when the suite passes but implementation files are
+uncommitted, and lists them: the suite runs on the working tree, so on 2026-11-27 a run was marked done while the
+commit it ended on had a Resolve button posting to a route that only existed uncommitted.
 
 ### Verification
 

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -30,6 +31,25 @@ export const CONFIG_FILE = ".pi/project.json";
 export function projectConfig(cwd: string): ProjectConfig {
   const path = join(cwd, CONFIG_FILE);
   return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) as ProjectConfig : {};
+}
+
+/** Implementation files (the config's pathspecs) that are modified, staged or untracked: work no commit holds. */
+export function uncommittedImplementation(cwd: string, pathspecs: string[] | undefined): string[] {
+  if (!pathspecs?.length) return [];
+  try {
+    const status = execFileSync("git", ["status", "--porcelain", "-z", "--untracked-files=all", "--", ...pathspecs],
+      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    // Each entry is "XY path"; a rename is followed by its old path as a separate entry with no status.
+    const entries = status.split("\0").filter(Boolean);
+    const paths: string[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      paths.push(entries[i].slice(3));
+      if (/^[RC]/.test(entries[i])) i++;
+    }
+    return [...new Set(paths)].sort();
+  } catch {
+    return [];
+  }
 }
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

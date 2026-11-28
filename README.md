@@ -109,8 +109,9 @@ send `Continue.`
 After Pi reports its final review, verify the result and send the finish prompt.
 The workshop extension runs the test suite with the
 [exact command in AGENTS.md](AGENTS.md#working-in-this-repo)
-and marks Phase 4 done when it passes. If it fails, fix the reported failure and
-send the same finish prompt again.
+and marks Phase 4 done when it passes and the implementation is committed. If it
+reports a failure or uncommitted files, fix that and send the same finish prompt
+again.
 
 ```
 Use Superpowers to finish Phase 4. Keep the current branch as-is and mark Phase 4 done in specs/roadmap.md.
