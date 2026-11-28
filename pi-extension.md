@@ -20,7 +20,9 @@ No extension carries text written for this project, its stack or one phase. All 
   `fastapi-testing` skill was cut on 2026-11-27 to the facts about `tests/conftest.py`, which gives every test a
   `client` that does not follow redirects, a `form_targets(html)` helper and an in-memory data reset. Mellum
   never wrote the fixture or the form parser that the longer guidance described (0 of 11 plans), and a POST test
-  that followed the redirect cost one execution about 100 seconds.
+  that followed the redirect cost one execution about 100 seconds. The reset also restores the next free ID:
+  until 2026-11-27 it restored the list only, so a test that expected a new complaint to get ID 5 passed alone and
+  failed in the suite. One run spent about 12 minutes on that before making the same change to the fixture itself.
 - `python`, `pytest`, `testSuite`, `implementation`: the commands the extensions run or write into plans, and the
   files whose change during the finish check stops it.
 - `servers` and `inProcessHint`: what counts as starting a server, and what to do instead.
