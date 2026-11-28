@@ -24,7 +24,7 @@
 - Download the Mellum2.1 model in LM Studio:
   - [MLX version for macOS](https://huggingface.co/mlx-community/Mellum2.1-12B-A2.5B-Thinking-6bit)
   - [GGUF version for Windows and Linux](https://huggingface.co/JetBrains/Mellum2.1-12B-A2.5B-Thinking)
-- Choose `Context Length` in the LMStudio for this model about 50–60K.
+- Set `Context Length` in the LMStudio for this model to 60K.
 
 ## Pi coding agent
 
